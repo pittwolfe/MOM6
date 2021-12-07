@@ -2214,6 +2214,9 @@ subroutine MOM_diagnostics_init(MIS, ADp, CDp, Time, G, GV, US, param_file, diag
   CS%id_huu = register_diag_field('ocean_model', 'twa_huu', diag%axesCuL, Time, &
       'Second order zonal advection', 'meter3 second-2', conversion=US%L_T2_to_m_s2*US%L_to_m)
   if (CS%id_huu > 0) allocate(CS%huu(IsdB:IedB,jsd:jed,nz), source=0.)
+  CS%id_huv_Bu = register_diag_field('ocean_model', 'twa_huv_Bu', diag%axesBL, Time, &
+      'huv_Bu at Cv points', 'meter second-1', conversion=US%L_T2_to_m_s2*US%L_to_m)
+  if (CS%id_huv_Bu > 0) allocate(CS%huv_Bu(IsdB:IedB,JsdB:JedB,nz), source=0.)
   CS%id_hdudtvisc = register_diag_field('ocean_model', 'twa_hdudtvisc', diag%axesCuL, Time, &
       'verical viscous xtwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
   if (CS%id_hdudtvisc > 0) allocate(CS%hdudtvisc(IsdB:IedB,jsd:jed,nz), source=0.)
@@ -2254,9 +2257,6 @@ subroutine MOM_diagnostics_init(MIS, ADp, CDp, Time, G, GV, US, param_file, diag
   CS%id_esq = register_diag_field('ocean_model', 'esq', diag%axesTL, Time, &
       'e**2 at T points', 'meter2', conversion=US%L_to_m*US%L_to_m)
   if (CS%id_esq > 0) allocate(CS%esq(isd:ied,jsd:jed,nz), source=0.)
-  CS%id_huv_Bu = register_diag_field('ocean_model', 'huv_Bu', diag%axesBL, Time, &
-      'huv_Bu at Cv points', 'meter second-1', conversion=US%L_T2_to_m_s2*US%L_to_m)
-  if (CS%id_huv_Bu > 0) allocate(CS%huv_Bu(IsdB:IedB,JsdB:JedB,nz), source=0.)
 
   ! gravity wave CFLs
   CS%id_cg1 = register_diag_field('ocean_model', 'cg1', diag%axesT1, Time, &
