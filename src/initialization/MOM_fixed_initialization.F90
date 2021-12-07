@@ -27,6 +27,7 @@ use MOM_shared_initialization, only : compute_global_grid_integrals, write_ocean
 use MOM_unit_scaling, only : unit_scale_type
 
 use user_initialization, only : user_initialize_topography
+use BFB_initialization, only : BFB_initialize_topography
 use DOME_initialization, only : DOME_initialize_topography
 use ISOMIP_initialization, only : ISOMIP_initialize_topography
 use basin_builder, only : basin_builder_topography
@@ -214,6 +215,7 @@ subroutine MOM_initialize_topography(D, max_depth, G, PF, US)
                  " \t shelfwave - exponential slope for shelfwave test case.\n"//&
                  " \t Phillips - ACC-like idealized topography used in the Phillips config.\n"//&
                  " \t dense - Denmark Strait-like dense water formation and overflow.\n"//&
+                 " \t BFB - Load topography at the eastern, western, northern boundaries.. \n"//&
                  " \t USER - call a user modified routine.", &
                  fail_if_missing=.true.)
   max_depth = -1.e9*m_to_Z ; call read_param(PF, "MAXIMUM_DEPTH", max_depth, scale=m_to_Z)
@@ -236,6 +238,7 @@ subroutine MOM_initialize_topography(D, max_depth, G, PF, US)
     case ("shelfwave"); call shelfwave_initialize_topography(D, G, PF, max_depth, US)
     case ("Phillips");  call Phillips_initialize_topography(D, G, PF, max_depth, US)
     case ("dense");     call dense_water_initialize_topography(D, G, PF, max_depth)
+    case ("BFB");       call BFB_initialize_topography(D, G, PF, max_depth, US)
     case ("USER");      call user_initialize_topography(D, G, PF, max_depth, US)
     case default ;      call MOM_error(FATAL,"MOM_initialize_topography: "// &
       "Unrecognized topography setup '"//trim(config)//"'")

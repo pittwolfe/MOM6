@@ -114,7 +114,7 @@ type, public :: diagnostics_CS ; private
   integer :: id_e              = -1, id_e_D            = -1
   integer :: id_du_dt          = -1, id_dv_dt          = -1
   ! integer :: id_hf_du_dt       = -1, id_hf_dv_dt       = -1
-  integer :: id_h_du_dt       = -1, id_h_dv_dt       = -1
+  integer :: id_h_du_dt        = -1, id_h_dv_dt        = -1
   integer :: id_hf_du_dt_2d    = -1, id_hf_dv_dt_2d    = -1
   integer :: id_col_ht         = -1, id_dh_dt          = -1
   integer :: id_KE             = -1, id_dKEdt          = -1
@@ -157,6 +157,44 @@ type, public :: diagnostics_CS ; private
   integer   :: num_time_deriv = 0 !< The number of time derivative diagnostics
 
   type(group_pass_type) :: pass_KE_uv !< A handle used for group halo passes
+
+
+  real, allocatable  ::   hfv(:,:,:)
+  real, allocatable  ::   hpfu(:,:,:)
+  real, allocatable  ::   huwb(:,:,:)
+  real, allocatable  ::   huu(:,:,:)
+  real, allocatable  ::   huv_Bu(:,:,:)
+  real, allocatable  ::   hdudtvisc(:,:,:)
+  real, allocatable  ::   hdiffu(:,:,:)
+
+  real, allocatable  ::   hmfu(:,:,:)
+  real, allocatable  ::   hpfv(:,:,:)
+  real, allocatable  ::   hvwb(:,:,:)
+  real, allocatable  ::   hvv(:,:,:)
+  real, allocatable  ::   hdvdtvisc(:,:,:)
+  real, allocatable  ::   hdiffv(:,:,:)
+
+  real, allocatable  ::   h_Cu(:,:,:)
+  real, allocatable  ::   hw_Cu(:,:,:)
+  real, allocatable  ::   hwb_Cu(:,:,:)
+  real, allocatable  ::   esq(:,:,:)
+
+  real, allocatable  ::   h_Cv(:,:,:)
+  real, allocatable  ::   hw_Cv(:,:,:)
+  real, allocatable  ::   hwb_Cv(:,:,:)
+
+  integer :: id_hfv            = -1, id_hmfu           = -1
+  integer :: id_hpfu           = -1, id_hpfv           = -1
+  integer :: id_huwb           = -1, id_hvwb           = -1
+  integer :: id_huu            = -1, id_huv_Bu         = -1
+  integer ::                         id_hvv            = -1
+  integer :: id_hdudtvisc      = -1, id_hdvdtvisc      = -1
+  integer :: id_hdiffu         = -1, id_hdiffv         = -1
+
+  integer :: id_h_Cu           = -1, id_h_Cv           = -1
+  integer :: id_hw_Cu          = -1, id_hw_Cv          = -1
+  integer :: id_hwb_Cu         = -1, id_hwb_Cv         = -1
+  integer :: id_esq            = -1
 
 end type diagnostics_CS
 
@@ -346,6 +384,7 @@ subroutine calculate_diagnostic_fields(u, v, h, uh, vh, tv, ADp, CDp, p_surf, &
     call diag_restore_grids(CS%diag)
 
     call calculate_energy_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
+    call calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
   endif
 
   ! smg: is the following robust to ALE? It seems a bit opaque.
@@ -1232,6 +1271,245 @@ subroutine calculate_energy_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS
 
 end subroutine calculate_energy_diagnostics
 
+subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
+  type(ocean_grid_type),   intent(inout) :: G    !< The ocean's grid structure.
+  type(verticalGrid_type), intent(in)    :: GV   !< The ocean's vertical grid structure.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), &
+                           intent(in)    :: u    !< The zonal velocity [L T-1 ~> m s-1].
+  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), &
+                           intent(in)    :: v    !< The meridional velocity [L T-1 ~> m s-1].
+  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
+                           intent(in)    :: h    !< Layer thicknesses [H ~> m or kg m-2].
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), &
+                           intent(in)    :: uh   !< Transport through zonal faces=u*h*dy,
+                                                 !! [H L2 T-1 ~> m3 s-1 or kg s-1].
+  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), &
+                           intent(in)    :: vh   !< Transport through merid faces=v*h*dx,
+                                                 !! [H L2 T-1 ~> m3 s-1 or kg s-1].
+  type(accel_diag_ptrs),   intent(in)    :: ADp  !< Structure pointing to accelerations in momentum equation.
+  type(cont_diag_ptrs),    intent(in)    :: CDp  !< Structure pointing to terms in continuity equations.
+  type(unit_scale_type),   intent(in)    :: US   !< A dimensional unit scaling type
+  type(diagnostics_CS),    intent(inout) :: CS   !< Control structure returned by a previous call to
+                                                 !! diagnostics_init.
+
+
+  real :: dwd, uhxCu,vhyCu, uhxCv, vhyCv
+  real :: hmin, hmintol, hq
+  real, dimension(SZIB_(G),SZJB_(G),SZK_(G)) :: ishqlarge
+
+  integer :: i, j, k, is, ie, js, je, Isq, Ieq, Jsq, Jeq, nz
+  is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = G%ke
+  Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
+
+!   if(ASSOCIATED(CS%e_Cu) .OR. ASSOCIATED(CS%e_Cv) .OR. &
+!     ASSOCIATED(CS%epfu) .OR. ASSOCIATED(CS%epfv)) then
+!       call create_group_pass(CS%pass_e, CS%e, G%Domain)
+!       call do_group_pass(CS%pass_e, G%domain)
+!   endif
+!   if(ASSOCIATED(CS%hw_Cu) .OR. ASSOCIATED(CS%hw_Cv) .OR. &
+!     ASSOCIATED(CS%hwb_Cu) .OR. ASSOCIATED(CS%hwb_Cv) .OR. &
+!     ASSOCIATED(CS%huwb) .OR.  ASSOCIATED(CS%hvwb)) then
+!       call create_group_pass(CS%pass_diapyc_vel, CDp%diapyc_vel, G%Domain, To_West+To_South)
+!       call do_group_pass(CS%pass_diapyc_vel, G%domain)
+!   endif
+  !hmintol = 2.0*GV%Angstrom_z
+!   hmintol = 1e-3   ! 1 mm
+!   do k = 1,nz
+!     do J=Jsq,Jeq ; do I=Isq,Ieq
+!       if ( i < ieq .AND. j < jeq ) then
+!         hmin = min(h(i,j,k), h(i+1,j,k), h(i,j+1,k), h(i+1,j+1,k))
+!       elseif ( i == ieq .AND. j < jeq ) then
+!         hmin = min(h(i,j,k), h(i,j+1,k))
+!       elseif ( i < ieq .AND. j == jeq ) then
+!         hmin = min(h(i,j,k), h(i+1,j,k))
+!       else
+!         hmin = h(i,j,k)
+!       endif
+!
+!       if (hmin <= hmintol) then
+!         ishqlarge(I,j,k) = 0.0
+!       else
+!         ishqlarge(I,j,k) = 1.0
+!       endif
+!       CS%islayerdeep(I,J,k) = CS%islayerdeep(I,J,k) + ishqlarge(I,J,k)
+!     enddo ; enddo
+!   enddo
+!   if (CS%id_islayerdeep > 0) call post_data(CS%id_islayerdeep, CS%islayerdeep, CS%diag)
+
+  if (ASSOCIATED(CS%h_Cu)) then
+    do k=1,nz
+      do j=js,je ; do I=Isq,Ieq
+        CS%h_Cu(I,j,k) = 0.5*(h(i,j,k) + h(i+1,j,k))
+      enddo ; enddo
+    enddo
+    if (CS%id_h_Cu > 0) call post_data(CS%id_h_Cu, CS%h_Cu, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%h_Cv)) then
+    do k=1,nz
+      do j=Jsq,Jeq ; do i=is,ie
+        CS%h_Cv(i,J,k) = 0.5*(h(i,j,k) + h(i,j+1,k))
+      enddo ; enddo
+    enddo
+    if (CS%id_h_Cv > 0) call post_data(CS%id_h_Cv, CS%h_Cv, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hwb_Cu)) then
+    do k=1,nz
+      do j=js,je ; do I=Isq,Ieq
+        CS%hwb_Cu(I,j,k) = 0.25*(CDp%diapyc_vel(i,j,k) + CDp%diapyc_vel(i+1,j,k) + &
+          CDp%diapyc_vel(i,j,k+1) + CDp%diapyc_vel(i+1,j,k+1))
+      enddo ; enddo
+    enddo
+    if (CS%id_hwb_Cu > 0) call post_data(CS%id_hwb_Cu, CS%hwb_Cu, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hwb_Cv)) then
+    do k=1,nz
+      do j=js,je ; do I=Isq,Ieq
+        CS%hwb_Cv(i,J,k) = 0.25*(CDp%diapyc_vel(i,j,k) + CDp%diapyc_vel(i,j+1,k) + &
+          CDp%diapyc_vel(i,j,k+1) + CDp%diapyc_vel(i,j+1,k+1))
+      enddo ; enddo
+    enddo
+    if (CS%id_hwb_Cv > 0) call post_data(CS%id_hwb_Cv, CS%hwb_Cv, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%esq)) then
+    do k=1,nz
+      do j=js,je ; do i=is,ie
+        CS%esq(i,j,k) = 0.5*(CS%e(i,j,k)*CS%e(i,j,k)+&
+          CS%e(i,j,k+1)*CS%e(i,j,k+1))
+      enddo ; enddo
+    enddo
+    if (CS%id_esq > 0) call post_data(CS%id_esq, CS%esq, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hfv)) then
+    do k=1,nz
+      do j=js,je ; do I=Isq,Ieq
+        CS%hfv(I,j,k) = CS%h_Cu(I,j,k)*(ADp%CAu(I,j,k) - ADp%gradKEu(I,j,k) - ADP%rv_x_v(I,j,k))
+      enddo ; enddo
+    enddo
+    if (CS%id_hfv > 0) call post_data(CS%id_hfv, CS%hfv, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hpfu)) then
+    do k=1,nz
+      do j=js,je ; do I=Isq,Ieq
+        CS%hpfu(i,J,k) = CS%h_Cu(I,j,k)*ADp%PFu(I,j,k)
+      enddo ; enddo
+    enddo
+    if (CS%id_hpfu > 0) call post_data(CS%id_hpfu, CS%hpfu, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%huwb)) then
+    do k=1,nz
+      do j=js,je ; do I=Isq,Ieq
+        dwd = 0.5*(CDp%diapyc_vel(i,j,k+1) - CDp%diapyc_vel(i,j,k) &
+          + CDp%diapyc_vel(i+1,j,k+1) - CDp%diapyc_vel(i+1,j,k))
+        CS%huwb(I,j,k) = CS%h_Cu(I,j,k)*ADp%du_dt_dia(I,j,k) - dwd*u(I,j,k)
+      enddo ; enddo
+    enddo
+    if (CS%id_huwb > 0) call post_data(CS%id_huwb, CS%huwb, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%huu)) then
+    do k=1,nz
+      do j=js,je ; do I=Isq,Ieq
+        CS%huu(I,j,k) = CS%h_Cu(I,j,k)*u(I,j,k)*u(I,j,k)
+      enddo ; enddo
+    enddo
+    if (CS%id_huu > 0) call post_data(CS%id_huu, CS%huu, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%huv_Bu)) then
+    do k=1,nz
+      do J=Jsq,Jeq ; do I=Isq,Ieq
+         CS%huv_Bu(i,j,k) = 0.125*(h_Cu(I,j,k) + h_Cu(I,j+1,k)) &
+                                 *(u(I,j,k) + u(I,j+1,k)) &
+                                 *(v(i,J,k) + v(i+1,J,k))
+      enddo ; enddo
+    enddo
+    if (CS%id_huv_Bu > 0) call post_data(CS%id_huv_Bu, CS%huv_Bu, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hdudtvisc)) then
+    do k=1,nz
+      do j=js,je ; do I=Isq,Ieq
+        CS%hdudtvisc(I,j,k) = CS%h_Cu(I,j,k)*ADp%du_dt_visc(I,j,k)
+      enddo ; enddo
+    enddo
+    if (CS%id_hdudtvisc > 0) call post_data(CS%id_hdudtvisc, CS%hdudtvisc, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hdiffu)) then
+    do k=1,nz
+      do j=js,je ; do I=Isq,Ieq
+        CS%hdiffu(I,j,k) = CS%h_Cu(I,j,k)*ADp%diffu(I,j,k)
+      enddo ; enddo
+    enddo
+    if (CS%id_hdiffu > 0) call post_data(CS%id_hdiffu, CS%hdiffu, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hmfu)) then
+    do k=1,nz
+      do j=Jsq,Jeq ; do i=is,ie
+        CS%hmfu(i,J,k) = CS%h_Cv(i,J,k)*(ADp%CAv(i,J,k) - ADp%gradKEv(i,J,k) &
+          - ADP%rv_x_u(i,J,k))
+      enddo ; enddo
+    enddo
+    if (CS%id_hmfu > 0) call post_data(CS%id_hmfu, CS%hmfu, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hpfv)) then
+    do k=1,nz
+      do J=Jsq,Jeq ; do i=is,ie
+        CS%hpfv(i,J,k) = CS%h_Cv(i,J,k)*ADp%PFv(i,J,k)
+      enddo ; enddo
+    enddo
+    if (CS%id_hpfv > 0) call post_data(CS%id_hpfv, CS%hpfv, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hvwb)) then
+    do k=1,nz
+      do J=Jsq,Jeq ; do i=is,ie
+        dwd = 0.5*(CDp%diapyc_vel(i,j,k+1) - CDp%diapyc_vel(i,j,k) &
+          + CDp%diapyc_vel(i,j+1,k+1) - CDp%diapyc_vel(i,j+1,k))
+        CS%hvwb(i,J,k) = CS%h_Cv(i,J,k)*ADp%dv_dt_dia(i,J,k) - dwd*v(i,J,k)
+      enddo ; enddo
+    enddo
+    if (CS%id_hvwb > 0) call post_data(CS%id_hvwb, CS%hvwb, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hvv)) then
+    do k=1,nz
+      do J=Jsq,Jeq ; do i=is,ie
+        CS%hvv(i,J,k) = CS%h_Cv(i,J,k)*v(i,J,k)*v(i,J,k)
+      enddo ; enddo
+    enddo
+    if (CS%id_hvv > 0) call post_data(CS%id_hvv, CS%hvv, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hdvdtvisc)) then
+    do k=1,nz
+      do J=Jsq,Jeq ; do i=is,ie
+        CS%hdvdtvisc(I,j,k) = CS%h_Cv(i,J,k)*ADp%dv_dt_visc(i,J,k)
+      enddo ; enddo
+    enddo
+    if (CS%id_hdvdtvisc > 0) call post_data(CS%id_hdvdtvisc, CS%hdvdtvisc, CS%diag)
+  endif
+
+  if (ASSOCIATED(CS%hdiffv)) then
+    do k=1,nz
+      do J=Jsq,Jeq ; do i=is,ie
+        CS%hdiffv(i,J,k) = CS%h_Cv(i,J,k)*ADp%diffv(i,J,k)
+      enddo ; enddo
+    enddo
+    if (CS%id_hdiffv > 0) call post_data(CS%id_hdiffv, CS%hdiffv, CS%diag)
+  endif
+
+end subroutine calculate_twa_diagnostics
+
 !> This subroutine registers fields to calculate a diagnostic time derivative.
 subroutine register_time_deriv(lb, f_ptr, deriv_ptr, CS)
   integer, intent(in), dimension(3) :: lb     !< Lower index bound of f_ptr
@@ -1923,6 +2201,63 @@ subroutine MOM_diagnostics_init(MIS, ADp, CDp, Time, G, GV, US, param_file, diag
     if (CS%id_KE_dia > 0) allocate(CS%KE_dia(isd:ied,jsd:jed,nz), source=0.)
   endif
 
+  ! terms in the twa budget
+  CS%id_hfv = register_diag_field('ocean_model', 'twa_hfv', diag%axesCuL, Time, &
+      'coriolis xtwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
+  if (CS%id_hfv > 0) allocate(CS%hfv(IsdB:IedB,jsd:jed,nz), source=0.)
+  CS%id_hpfu = register_diag_field('ocean_model', 'twa_hpfu', diag%axesCuL, Time, &
+      'PG xtwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
+  if (CS%id_hpfu > 0) allocate(CS%hpfu(IsdB:IedB,jsd:jed,nz), source=0.)
+  CS%id_huwb = register_diag_field('ocean_model', 'twa_huwb', diag%axesCuL, Time, &
+      'diabatic xtwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
+  if (CS%id_huwb > 0) allocate(CS%huwb(IsdB:IedB,jsd:jed,nz), source=0.)
+  CS%id_huu = register_diag_field('ocean_model', 'twa_huu', diag%axesCuL, Time, &
+      'Second order zonal advection', 'meter3 second-2', conversion=US%L_T2_to_m_s2*US%L_to_m)
+  if (CS%id_huu > 0) allocate(CS%huu(IsdB:IedB,jsd:jed,nz), source=0.)
+  CS%id_hdudtvisc = register_diag_field('ocean_model', 'twa_hdudtvisc', diag%axesCuL, Time, &
+      'verical viscous xtwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
+  if (CS%id_hdudtvisc > 0) allocate(CS%hdudtvisc(IsdB:IedB,jsd:jed,nz), source=0.)
+  CS%id_hdiffu = register_diag_field('ocean_model', 'twa_hdiffu', diag%axesCuL, Time, &
+      'horizontal viscous xtwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
+  if (CS%id_hdiffu > 0) allocate(CS%hdiffu(IsdB:IedB,jsd:jed,nz), source=0.)
+  CS%id_hmfu = register_diag_field('ocean_model', 'twa_hmfu', diag%axesCvL, Time, &
+      'coriolis ytwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
+  if (CS%id_hmfu > 0) allocate(CS%hmfu(isd:ied,JsdB:JedB,nz), source=0.)
+  CS%id_hpfv = register_diag_field('ocean_model', 'twa_hpfv', diag%axesCvL, Time, &
+      'PG ytwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
+  if (CS%id_hpfv > 0) allocate(CS%hpfv(isd:ied,JsdB:JedB,nz), source=0.)
+  CS%id_hvwb = register_diag_field('ocean_model', 'twa_hvwb', diag%axesCvL, Time, &
+      'diabatic ytwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
+  if (CS%id_hvwb > 0) allocate(CS%hvwb(isd:ied,JsdB:JedB,nz), source=0.)
+  CS%id_hvv = register_diag_field('ocean_model', 'twa_hvv', diag%axesCvL, Time, &
+      'Second order meridional advection', 'meter3 second-2', conversion=US%L_T2_to_m_s2*US%L_to_m)
+  if (CS%id_hvv > 0) allocate(CS%hvv(isd:ied,JsdB:JedB,nz), source=0.)
+  CS%id_hdvdtvisc = register_diag_field('ocean_model', 'twa_hdvdtvisc', diag%axesCvL, Time, &
+      'vertical viscous ytwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
+  if (CS%id_hdvdtvisc > 0) allocate(CS%hdvdtvisc(isd:ied,JsdB:JedB,nz), source=0.)
+  CS%id_hdiffv = register_diag_field('ocean_model', 'twa_hdiffv', diag%axesCvL, Time, &
+      'horizontal viscous ytwa term', 'meter second-2', conversion=US%L_T2_to_m_s2)
+  if (CS%id_hdiffv > 0) allocate(CS%hdiffv(isd:ied,JsdB:JedB,nz), source=0.)
+
+  CS%id_h_Cu = register_diag_field('ocean_model', 'h_Cu', diag%axesCuL, Time, &
+      'h at Cu points', 'meter', conversion=US%L_to_m)
+  if (CS%id_h_Cu > 0) allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
+  CS%id_h_Cv = register_diag_field('ocean_model', 'h_Cv', diag%axesCvL, Time, &
+      'h at Cv points', 'meter', conversion=US%L_to_m)
+  if (CS%id_h_Cv > 0) allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
+  CS%id_hwb_Cu = register_diag_field('ocean_model', 'hwb_Cu', diag%axesCuL, Time, &
+      'hwb at Cu points', 'meter2 second-1', conversion=US%L_T2_to_m_s2)
+  if (CS%id_hwb_Cu > 0) allocate(CS%hwb_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
+  CS%id_hwb_Cv = register_diag_field('ocean_model', 'hwb_Cv', diag%axesCvL, Time, &
+      'hwb at Cv points', 'meter2 second-1', conversion=US%L_T2_to_m_s2) ! TODO
+  if (CS%id_hwb_Cv > 0) allocate(CS%hwb_Cv(isd:ied,JsdB:JedB,nz), source=0.)
+  CS%id_esq = register_diag_field('ocean_model', 'esq', diag%axesTL, Time, &
+      'e**2 at T points', 'meter2', conversion=US%L_to_m*US%L_to_m)
+  if (CS%id_esq > 0) allocate(CS%esq(isd:ied,jsd:jed,nz), source=0.)
+  CS%id_huv_Bu = register_diag_field('ocean_model', 'huv_Bu', diag%axesBL, Time, &
+      'huv_Bu at Cv points', 'meter second-1', conversion=US%L_T2_to_m_s2*US%L_to_m)
+  if (CS%id_huv_Bu > 0) allocate(CS%huv_Bu(IsdB:IedB,JsdB:JedB,nz), source=0.)
+
   ! gravity wave CFLs
   CS%id_cg1 = register_diag_field('ocean_model', 'cg1', diag%axesT1, Time, &
       'First baroclinic gravity wave speed', 'm s-1', conversion=US%L_T_to_m_s)
@@ -2357,6 +2692,85 @@ subroutine set_dependent_diagnostics(MIS, ADp, CDp, G, GV, CS)
   if (allocated(CS%uhGM_Rlay)) call safe_alloc_ptr(CDp%uhGM,IsdB,IedB,jsd,jed,nz)
   if (allocated(CS%vhGM_Rlay)) call safe_alloc_ptr(CDp%vhGM,isd,ied,JsdB,JedB,nz)
 
+
+  if (ASSOCIATED(CS%hfv)) then
+    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
+    call safe_alloc_ptr(ADp%gradKEu,IsdB,IedB,jsd,jed,nz)
+    call safe_alloc_ptr(ADp%rv_x_v,IsdB,IedB,jsd,jed,nz)
+  endif
+
+  if (ASSOCIATED(CS%huwb)) then
+    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
+    call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
+    call safe_alloc_ptr(ADp%du_dt_dia,IsdB,IedB,jsd,jed,nz)
+  endif
+
+  if (ASSOCIATED(CS%huu)) then
+    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
+  endif
+
+  if (ASSOCIATED(CS%huv_Bu)) then
+    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
+  endif
+
+  if (ASSOCIATED(CS%hdudtvisc)) then
+    call safe_alloc_ptr(ADp%du_dt_visc,IsdB,IedB,jsd,jed,nz)
+    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
+  endif
+
+  if (ASSOCIATED(CS%hdiffu)) then
+    call safe_alloc_ptr(ADp%diffu,IsdB,IedB,jsd,jed,nz)
+    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
+  endif
+
+  if (ASSOCIATED(CS%hmfu)) then
+    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
+    call safe_alloc_ptr(ADp%gradKEv,isd,ied,JsdB,JedB,nz)
+    call safe_alloc_ptr(ADp%rv_x_u,isd,ied,JsdB,JedB,nz)
+  endif
+
+  if (ASSOCIATED(CS%hvwb)) then
+    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
+    call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
+    call safe_alloc_ptr(ADp%dv_dt_dia,isd,ied,JsdB,JedB,nz)
+  endif
+
+  if (ASSOCIATED(CS%hvv)) then
+    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
+  endif
+
+  if (ASSOCIATED(CS%hdvdtvisc)) then
+    call safe_alloc_ptr(ADp%dv_dt_visc,isd,ied,JsdB,JedB,nz)
+    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
+  endif
+
+  if (ASSOCIATED(CS%hdiffv)) then
+    call safe_alloc_ptr(ADp%diffv,isd,ied,JsdB,JedB,nz)
+    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
+  endif
+
+  if (ASSOCIATED(CS%hw_Cu)) then
+    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
+    call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
+  endif
+
+  if (ASSOCIATED(CS%hw_Cv)) then
+    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
+    call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
+  endif
+
+  if (ASSOCIATED(CS%hwb_Cu)) then
+    call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
+  endif
+
+  if (ASSOCIATED(CS%hwb_Cv)) then
+    call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
+  endif
+
+  if (ASSOCIATED(CS%esq)) then
+    call safe_alloc_ptr(CS%e,isd,ied,jsd,jed,nz+1)
+  endif
+
 end subroutine set_dependent_diagnostics
 
 !> Deallocate memory associated with the diagnostics module
@@ -2408,6 +2822,51 @@ subroutine MOM_diagnostics_end(CS, ADp, CDp)
   if (associated(CDp%uhGM)) deallocate(CDp%uhGM)
   if (associated(CDp%vhGM)) deallocate(CDp%vhGM)
   if (associated(CDp%diapyc_vel)) deallocate(CDp%diapyc_vel)
+
+
+  if (ASSOCIATED(CS%hfv))         deallocate(CS%hfv)
+  if (ASSOCIATED(CS%hpfu))        deallocate(CS%hpfu)
+  if (ASSOCIATED(CS%huwb))        deallocate(CS%huwb)
+  if (ASSOCIATED(CS%huuxpt))      deallocate(CS%huuxpt)
+  if (ASSOCIATED(CS%huvymt))      deallocate(CS%huvymt)
+  if (ASSOCIATED(CS%hdudtvisc))   deallocate(CS%hdudtvisc)
+  if (ASSOCIATED(CS%hdiffu))      deallocate(CS%hdiffu)
+  if (ASSOCIATED(CS%hmfu))        deallocate(CS%hmfu)
+  if (ASSOCIATED(CS%hpfv))        deallocate(CS%hpfv)
+  if (ASSOCIATED(CS%hvwb))        deallocate(CS%hvwb)
+  if (ASSOCIATED(CS%huvxpt))      deallocate(CS%huvxpt)
+  if (ASSOCIATED(CS%hvvymt))      deallocate(CS%hvvymt)
+  if (ASSOCIATED(CS%hdvdtvisc))   deallocate(CS%hdvdtvisc)
+  if (ASSOCIATED(CS%hdiffv))      deallocate(CS%hdiffv)
+
+  if (ASSOCIATED(CS%h_Cu))        deallocate(CS%h_Cu)
+  if (ASSOCIATED(CS%usq))         deallocate(CS%usq)
+  if (ASSOCIATED(CS%huu_T))       deallocate(CS%huu_T)
+  if (ASSOCIATED(CS%huu_Cu))      deallocate(CS%huu_Cu)
+  if (ASSOCIATED(CS%hv_Cu))       deallocate(CS%hv_Cu)
+  if (ASSOCIATED(CS%hw_Cu))       deallocate(CS%hw_Cu)
+  if (ASSOCIATED(CS%hwb_Cu))      deallocate(CS%hwb_Cu)
+  if (ASSOCIATED(CS%e_Cu))        deallocate(CS%e_Cu)
+  if (ASSOCIATED(CS%epfu))        deallocate(CS%epfu)
+  if (ASSOCIATED(CS%uh_masked))   deallocate(CS%uh_masked)
+  if (ASSOCIATED(CS%u_masked))    deallocate(CS%u_masked)
+  if (ASSOCIATED(CS%pfu_masked))  deallocate(CS%pfu_masked)
+
+  if (ASSOCIATED(CS%h_Cv))        deallocate(CS%h_Cv)
+  if (ASSOCIATED(CS%vsq))         deallocate(CS%vsq)
+  if (ASSOCIATED(CS%hvv_T))       deallocate(CS%hvv_T)
+  if (ASSOCIATED(CS%hvv_Cv))      deallocate(CS%hvv_Cv)
+  if (ASSOCIATED(CS%hu_Cv))       deallocate(CS%hu_Cv)
+  if (ASSOCIATED(CS%hw_Cv))       deallocate(CS%hw_Cv)
+  if (ASSOCIATED(CS%hwb_Cv))      deallocate(CS%hwb_Cv)
+  if (ASSOCIATED(CS%e_Cv))        deallocate(CS%e_Cv)
+  if (ASSOCIATED(CS%epfv))        deallocate(CS%epfv)
+  if (ASSOCIATED(CS%vh_masked))   deallocate(CS%vh_masked)
+  if (ASSOCIATED(CS%v_masked))    deallocate(CS%v_masked)
+  if (ASSOCIATED(CS%pfv_masked))  deallocate(CS%pfv_masked)
+  if (ASSOCIATED(CS%huv_Bu))      deallocate(CS%huv_Bu)
+  if (ASSOCIATED(CS%huv_Bu1))     deallocate(CS%huv_Bu1)
+  if (ASSOCIATED(CS%uv))          deallocate(CS%uv)
 
   do m=1,CS%num_time_deriv ; deallocate(CS%prev_val(m)%p) ; enddo
 end subroutine MOM_diagnostics_end

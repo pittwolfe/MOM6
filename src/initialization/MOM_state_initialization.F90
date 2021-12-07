@@ -82,6 +82,7 @@ use supercritical_initialization, only : supercritical_set_OBC_data
 use soliton_initialization, only : soliton_initialize_velocity
 use soliton_initialization, only : soliton_initialize_thickness
 use BFB_initialization, only : BFB_initialize_sponges_southonly
+use BFB_initialization, only : BFB_initialize_thickness
 use dense_water_initialization, only : dense_water_initialize_TS
 use dense_water_initialization, only : dense_water_initialize_sponges
 use dumbbell_initialization, only : dumbbell_initialize_sponges
@@ -285,6 +286,7 @@ subroutine MOM_initialize_state(u, v, h, tv, Time, G, GV, US, PF, dirs, &
              " \t dumbbell - sloshing channel ICs. \n"//&
              " \t soliton - Equatorial Rossby soliton. \n"//&
              " \t rossby_front - a mixed layer front in thermal wind balance.\n"//&
+             " \t BFB - Uniform thickness above an abyssal layer.\n"//&
              " \t USER - call a user modified routine.", &
              default="uniform", do_not_log=just_read)
     select case (trim(config))
@@ -333,6 +335,8 @@ subroutine MOM_initialize_state(u, v, h, tv, Time, G, GV, US, PF, dirs, &
                                   just_read=just_read)
       case ("rossby_front"); call Rossby_front_initialize_thickness(h, G, GV, US, &
                                       PF, just_read=just_read)
+      case ("BFB"); call BFB_initialize_thickness(h, G, GV, PF, &
+                              just_read=just_read)
       case ("USER"); call user_initialize_thickness(h, G, GV, PF, &
                               just_read=just_read)
       case default ; call MOM_error(FATAL,  "MOM_initialize_state: "//&

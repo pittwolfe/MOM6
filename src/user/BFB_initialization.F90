@@ -171,6 +171,90 @@ subroutine BFB_initialize_sponges_southonly(G, GV, US, use_temperature, tv, dept
 
 end subroutine BFB_initialize_sponges_southonly
 
+subroutine BFB_initialize_topography(D, G, param_file, max_depth, US)
+  type(dyn_horgrid_type),          intent(in)  :: G !< The dynamic horizontal grid type
+  real, dimension(G%isd:G%ied,G%jsd:G%jed), &
+                                   intent(out) :: D !< Ocean bottom depth in m or Z if US is present
+  type(param_file_type),           intent(in)  :: param_file !< Parameter file structure
+  real,                            intent(in)  :: max_depth !< Maximum model depth in the units of D
+  type(unit_scale_type), optional, intent(in)  :: US !< A dimensional unit scaling type
+
+  real                                         :: efold, rct, ebdepth
+  real                                         :: westlon, northlat, southlat, lenlat
+  real, parameter                              :: piby180 = 4.0*atan(1.0)/180.0
+  integer :: i, j, is, ie, js, je, isd, ied, jsd, jed
+  is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
+  isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
+
+!!$  call MOM_error(FATAL, &
+!!$   "USER_initialization.F90, USER_initialize_topography: " // &
+!!$   "Unmodified user routine called - you must edit the routine to use it")
+
+  ! Slope at the eastern boundary, default is 2m/km
+  call get_param(param_file, mdl, "TOPO_EFOLDING_SCALE", efold, &
+          "E-folding scale of the topography at the eastern boundary on the continental shelf", units="degrees", default=2.5)
+  call get_param(param_file, mdl, "DEPTH_EB", ebdepth, &
+       "Depth at the eastern boundary", &
+       units="m", default=100.0)
+  call get_param(param_file, mdl, "SOUTHLAT", southlat, &
+                 "Southern latitude of the domain", units="degrees")
+  call get_param(param_file, mdl, "LENLAT", lenlat, &
+                 "Latitudinal length of the domain", units="degrees")
+  call get_param(param_file, mdl, "WESTLON", westlon, &
+                 "The western longitude of the domain.", units="degrees", default=0.0)
+
+  northlat = southlat + lenlat
+  do j=js,je; do i=is,ie
+      D(i,j) = min(max_depth,ebdepth+exp(-efold*G%geoLonT(i,j))&
+           &,ebdepth+exp(efold*(G&
+           &%geoLonT(i,j)-westlon)),ebdepth+exp(-efold*(G%geoLatT(i&
+           &,j)-northlat)))
+  enddo; enddo
+
+  if (first_call) call write_BFB_log(param_file)
+
+end subroutine BFB_initialize_topography
+
+subroutine BFB_initialize_thickness(h, G, GV, param_file, just_read)
+  type(ocean_grid_type),   intent(in)  :: G  !< The ocean's grid structure.
+  type(verticalGrid_type), intent(in)  :: GV !< The ocean's vertical grid structure.
+  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
+                           intent(out) :: h  !< The thicknesses being initialized [H ~> m or kg m-2].
+  type(param_file_type),   intent(in)  :: param_file !< A structure indicating the open
+                                             !! file to parse for model parameter values.
+  logical,                 intent(in)  :: just_read !< If true, this call will
+                                             !! only read parameters without changing h.
+
+  real :: eta(SZI_(G),SZJ_(G),SZK_(GV)+1) ! A temporary array for eta.
+  real :: H0(SZK_(GV))
+  real :: D_aby
+  integer :: i, j, k, is, ie, js, je, isd, ied, jsd, jed, nz
+
+  is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = G%ke
+  isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
+
+  call get_param(param_file, mod, "D_ABYSS", D_aby, &
+                 "Depth at which abyssal layer starts", units="m", default=1500.0)
+
+  eta(:,:,:) = 0.0
+  do k=1,nz ; H0(k) = -D_aby * real(k-1) / real(nz-1) ; enddo
+  do i=is,ie; do j=js,je
+    do k = 1,nz
+       if (H0(k) < -G%bathyT(i,j)) then
+          eta(i,j,k) = -G%bathyT(i,j)
+       else
+          eta(i,j,k) = H0(k)
+       endif
+    enddo
+    eta(i,j,nz+1) = -G%bathyT(i,j)
+    do k = 1,nz; h(i,j,k) = eta(i,j,k) - eta(i,j,k+1); enddo
+  enddo; enddo
+
+ if (first_call) call write_BFB_log(param_file)
+
+end subroutine BFB_initialize_thickness
+
+
 !> Write output about the parameter values being used.
 subroutine write_BFB_log(param_file)
   type(param_file_type), intent(in) :: param_file !< A structure indicating the
