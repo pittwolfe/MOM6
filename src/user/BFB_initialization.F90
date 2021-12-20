@@ -7,6 +7,7 @@ use MOM_error_handler, only : MOM_mesg, MOM_error, FATAL, is_root_pe
 use MOM_file_parser, only : get_param, log_version, param_file_type
 use MOM_get_input, only : directories
 use MOM_grid, only : ocean_grid_type
+use MOM_dyn_horgrid, only : dyn_horgrid_type
 use MOM_sponge, only : set_up_sponge_field, initialize_sponge, sponge_CS
 use MOM_tracer_registry, only : tracer_registry_type
 use MOM_unit_scaling, only : unit_scale_type
@@ -179,6 +180,7 @@ subroutine BFB_initialize_topography(D, G, param_file, max_depth, US)
   real,                            intent(in)  :: max_depth !< Maximum model depth in the units of D
   type(unit_scale_type), optional, intent(in)  :: US !< A dimensional unit scaling type
 
+  character(len=40)  :: mdl = "BFB_initialize_topography" ! This subroutine's name.
   real                                         :: efold, rct, ebdepth
   real                                         :: westlon, northlat, southlat, lenlat
   real, parameter                              :: piby180 = 4.0*atan(1.0)/180.0
@@ -225,6 +227,7 @@ subroutine BFB_initialize_thickness(h, G, GV, param_file, just_read)
   logical,                 intent(in)  :: just_read !< If true, this call will
                                              !! only read parameters without changing h.
 
+  character(len=40)  :: mdl = "BFB_initialize_thickness" ! This subroutine's name.
   real :: eta(SZI_(G),SZJ_(G),SZK_(GV)+1) ! A temporary array for eta.
   real :: H0(SZK_(GV))
   real :: D_aby
@@ -233,7 +236,7 @@ subroutine BFB_initialize_thickness(h, G, GV, param_file, just_read)
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = G%ke
   isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
 
-  call get_param(param_file, mod, "D_ABYSS", D_aby, &
+  call get_param(param_file, mdl, "D_ABYSS", D_aby, &
                  "Depth at which abyssal layer starts", units="m", default=1500.0)
 
   eta(:,:,:) = 0.0
