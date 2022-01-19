@@ -1336,7 +1336,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
 !   enddo
 !   if (CS%id_islayerdeep > 0) call post_data(CS%id_islayerdeep, CS%islayerdeep, CS%diag)
 
-  if (ASSOCIATED(CS%h_Cu)) then
+  if (allocated(CS%h_Cu)) then
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
         CS%h_Cu(I,j,k) = 0.5*(h(i,j,k) + h(i+1,j,k))
@@ -1345,7 +1345,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_h_Cu > 0) call post_data(CS%id_h_Cu, CS%h_Cu, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%h_Cv)) then
+  if (allocated(CS%h_Cv)) then
     do k=1,nz
       do j=Jsq,Jeq ; do i=is,ie
         CS%h_Cv(i,J,k) = 0.5*(h(i,j,k) + h(i,j+1,k))
@@ -1354,7 +1354,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_h_Cv > 0) call post_data(CS%id_h_Cv, CS%h_Cv, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hwb_Cu)) then
+  if (allocated(CS%hwb_Cu)) then
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
         CS%hwb_Cu(I,j,k) = 0.25*(CDp%diapyc_vel(i,j,k) + CDp%diapyc_vel(i+1,j,k) + &
@@ -1364,7 +1364,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hwb_Cu > 0) call post_data(CS%id_hwb_Cu, CS%hwb_Cu, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hwb_Cv)) then
+  if (allocated(CS%hwb_Cv)) then
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
         CS%hwb_Cv(i,J,k) = 0.25*(CDp%diapyc_vel(i,j,k) + CDp%diapyc_vel(i,j+1,k) + &
@@ -1374,7 +1374,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hwb_Cv > 0) call post_data(CS%id_hwb_Cv, CS%hwb_Cv, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%esq)) then
+  if (allocated(CS%esq)) then
     do k=1,nz
       do j=js,je ; do i=is,ie
         CS%esq(i,j,k) = 0.5*(CS%e(i,j,k)*CS%e(i,j,k)+&
@@ -1384,7 +1384,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_esq > 0) call post_data(CS%id_esq, CS%esq, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hfv)) then
+  if (allocated(CS%hfv)) then
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
         CS%hfv(I,j,k) = CS%h_Cu(I,j,k)*(ADp%CAu(I,j,k) - ADp%gradKEu(I,j,k) - ADP%rv_x_v(I,j,k))
@@ -1393,7 +1393,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hfv > 0) call post_data(CS%id_hfv, CS%hfv, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hpfu)) then
+  if (allocated(CS%hpfu)) then
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
         CS%hpfu(i,J,k) = CS%h_Cu(I,j,k)*ADp%PFu(I,j,k)
@@ -1402,7 +1402,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hpfu > 0) call post_data(CS%id_hpfu, CS%hpfu, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%huwb)) then
+  if (allocated(CS%huwb)) then
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
         dwd = 0.5*(CDp%diapyc_vel(i,j,k+1) - CDp%diapyc_vel(i,j,k) &
@@ -1413,7 +1413,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_huwb > 0) call post_data(CS%id_huwb, CS%huwb, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%huu)) then
+  if (allocated(CS%huu)) then
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
         CS%huu(I,j,k) = CS%h_Cu(I,j,k)*u(I,j,k)*u(I,j,k)
@@ -1422,7 +1422,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_huu > 0) call post_data(CS%id_huu, CS%huu, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%huv_Bu)) then
+  if (allocated(CS%huv_Bu)) then
     do k=1,nz
       do J=Jsq,Jeq ; do I=Isq,Ieq
          CS%huv_Bu(i,j,k) = 0.125*(CS%h_Cu(I,j,k) + CS%h_Cu(I,j+1,k)) &
@@ -1433,7 +1433,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_huv_Bu > 0) call post_data(CS%id_huv_Bu, CS%huv_Bu, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hdudtvisc)) then
+  if (allocated(CS%hdudtvisc)) then
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
         CS%hdudtvisc(I,j,k) = CS%h_Cu(I,j,k)*ADp%du_dt_visc(I,j,k)
@@ -1442,7 +1442,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hdudtvisc > 0) call post_data(CS%id_hdudtvisc, CS%hdudtvisc, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hdiffu)) then
+  if (allocated(CS%hdiffu)) then
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
         CS%hdiffu(I,j,k) = CS%h_Cu(I,j,k)*ADp%diffu(I,j,k)
@@ -1451,7 +1451,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hdiffu > 0) call post_data(CS%id_hdiffu, CS%hdiffu, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hmfu)) then
+  if (allocated(CS%hmfu)) then
     do k=1,nz
       do j=Jsq,Jeq ; do i=is,ie
         CS%hmfu(i,J,k) = CS%h_Cv(i,J,k)*(ADp%CAv(i,J,k) - ADp%gradKEv(i,J,k) &
@@ -1461,7 +1461,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hmfu > 0) call post_data(CS%id_hmfu, CS%hmfu, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hpfv)) then
+  if (allocated(CS%hpfv)) then
     do k=1,nz
       do J=Jsq,Jeq ; do i=is,ie
         CS%hpfv(i,J,k) = CS%h_Cv(i,J,k)*ADp%PFv(i,J,k)
@@ -1470,7 +1470,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hpfv > 0) call post_data(CS%id_hpfv, CS%hpfv, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hvwb)) then
+  if (allocated(CS%hvwb)) then
     do k=1,nz
       do J=Jsq,Jeq ; do i=is,ie
         dwd = 0.5*(CDp%diapyc_vel(i,j,k+1) - CDp%diapyc_vel(i,j,k) &
@@ -1481,7 +1481,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hvwb > 0) call post_data(CS%id_hvwb, CS%hvwb, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hvv)) then
+  if (allocated(CS%hvv)) then
     do k=1,nz
       do J=Jsq,Jeq ; do i=is,ie
         CS%hvv(i,J,k) = CS%h_Cv(i,J,k)*v(i,J,k)*v(i,J,k)
@@ -1490,7 +1490,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hvv > 0) call post_data(CS%id_hvv, CS%hvv, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hdvdtvisc)) then
+  if (allocated(CS%hdvdtvisc)) then
     do k=1,nz
       do J=Jsq,Jeq ; do i=is,ie
         CS%hdvdtvisc(I,j,k) = CS%h_Cv(i,J,k)*ADp%dv_dt_visc(i,J,k)
@@ -1499,7 +1499,7 @@ subroutine calculate_twa_diagnostics(u, v, h, uh, vh, ADp, CDp, G, GV, US, CS)
     if (CS%id_hdvdtvisc > 0) call post_data(CS%id_hdvdtvisc, CS%hdvdtvisc, CS%diag)
   endif
 
-  if (ASSOCIATED(CS%hdiffv)) then
+  if (allocated(CS%hdiffv)) then
     do k=1,nz
       do J=Jsq,Jeq ; do i=is,ie
         CS%hdiffv(i,J,k) = CS%h_Cv(i,J,k)*ADp%diffv(i,J,k)
@@ -2781,7 +2781,8 @@ subroutine set_dependent_diagnostics(MIS, ADp, CDp, G, GV, CS)
   endif
 
   if (allocated(CS%esq)) then
-    call safe_alloc_ptr(CS%e,isd,ied,jsd,jed,nz+1)
+    allocate(CS%e(isd:ied,jsd:jed,nz+1), source=0.)
+!!$    call safe_alloc_ptr(CS%e,isd,ied,jsd,jed,nz+1)
   endif
 
 end subroutine set_dependent_diagnostics
