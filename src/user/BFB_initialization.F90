@@ -20,6 +20,8 @@ implicit none ; private
 
 public BFB_set_coord
 public BFB_initialize_sponges_southonly
+public BFB_initialize_topography
+public BFB_initialize_thickness
 
 ! A note on unit descriptions in comments: MOM6 uses units that can be rescaled for dimensional
 ! consistency testing. These are noted in comments with units like Z, H, L, and T, along with
