@@ -99,6 +99,7 @@ subroutine BFB_initialize_sponges_southonly(G, GV, US, use_temperature, tv, dept
   real :: min_depth                 ! The minimum ocean depth in depth units [Z ~> m].
   real :: slat, wlon, lenlat, lenlon, nlat
   real :: max_damping               ! The maximum damping rate [T-1 ~> s-1]
+  real :: D_aby                     ! The thickness of the abyssal layer
   character(len=40)  :: mdl = "BFB_initialize_sponges_southonly" ! This subroutine's name.
   integer :: i, j, k, is, ie, js, je, isd, ied, jsd, jed, nz
 
@@ -125,7 +126,9 @@ subroutine BFB_initialize_sponges_southonly(G, GV, US, use_temperature, tv, dept
   call get_param(param_file, mdl, "LENLON", lenlon, &
                  "The longitudinal length of the domain.", units="degrees")
   nlat = slat + lenlat
-  do k=1,nz ; H0(k) = -G%max_depth * real(k-1) / real(nz) ; enddo
+  call get_param(param_file, mdl, "D_ABYSS", D_aby, &
+                 "Depth at which abyssal layer starts", units="m", default=1500.0)
+  do k=1,nz ; H0(k) = -D_aby * real(k-1) / real(nz-1) ; enddo
 
   ! Use for meridional thickness profile initialization
 !  do k=1,nz ; H0(k) = -G%max_depth * real(k-1) / real(nz-1) ; enddo
