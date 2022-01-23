@@ -2694,14 +2694,14 @@ subroutine set_dependent_diagnostics(MIS, ADp, CDp, G, GV, CS)
 
 
   if (allocated(CS%hfv)) then
-    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
+!!$    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
     call safe_alloc_ptr(ADp%gradKEu,IsdB,IedB,jsd,jed,nz)
     call safe_alloc_ptr(ADp%rv_x_v,IsdB,IedB,jsd,jed,nz)
   endif
 
   if (allocated(CS%huwb)) then
-    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
+!!$    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
     call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
     call safe_alloc_ptr(ADp%du_dt_dia,IsdB,IedB,jsd,jed,nz)
