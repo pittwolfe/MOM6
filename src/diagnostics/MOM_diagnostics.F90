@@ -2707,67 +2707,67 @@ subroutine set_dependent_diagnostics(MIS, ADp, CDp, G, GV, CS)
     call safe_alloc_ptr(ADp%du_dt_dia,IsdB,IedB,jsd,jed,nz)
   endif
 
-  if (allocated(CS%huu)) then
-    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
+!!$  if (allocated(CS%huu)) then
+!!$    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
-  endif
+!!$  endif
 
-  if (allocated(CS%huv_Bu)) then
-    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
+!!$  if (allocated(CS%huv_Bu)) then
+!!$    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
-  endif
+!!$  endif
 
   if (allocated(CS%hdudtvisc)) then
-    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
+!!$    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
     call safe_alloc_ptr(ADp%du_dt_visc,IsdB,IedB,jsd,jed,nz)
   endif
 
   if (allocated(CS%hdiffu)) then
-    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
+!!$    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
     call safe_alloc_ptr(ADp%diffu,IsdB,IedB,jsd,jed,nz)
   endif
 
   if (allocated(CS%hmfu)) then
-    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
+!!$    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
     call safe_alloc_ptr(ADp%gradKEv,isd,ied,JsdB,JedB,nz)
     call safe_alloc_ptr(ADp%rv_x_u,isd,ied,JsdB,JedB,nz)
   endif
 
   if (allocated(CS%hvwb)) then
-    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
+!!$    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
     call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
     call safe_alloc_ptr(ADp%dv_dt_dia,isd,ied,JsdB,JedB,nz)
   endif
 
-  if (allocated(CS%hvv)) then
-    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
+!!$  if (allocated(CS%hvv)) then
+!!$    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
-  endif
+!!$  endif
 
   if (allocated(CS%hdvdtvisc)) then
-    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
+!!$    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
     call safe_alloc_ptr(ADp%dv_dt_visc,isd,ied,JsdB,JedB,nz)
   endif
 
   if (allocated(CS%hdiffv)) then
-    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
+!!$    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
     call safe_alloc_ptr(ADp%diffv,isd,ied,JsdB,JedB,nz)
   endif
 
   if (allocated(CS%hw_Cu)) then
-    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
+!!$    allocate(CS%h_Cu(IsdB:IedB,jsd:jed,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cu,IsdB,IedB,jsd,jed,nz)
     call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
   endif
 
   if (allocated(CS%hw_Cv)) then
-    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
+!!$    allocate(CS%h_Cv(isd:ied,JsdB:JedB,nz), source=0.)
 !!$    call safe_alloc_ptr(CS%h_Cv,isd,ied,JsdB,JedB,nz)
     call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
   endif
@@ -2780,10 +2780,10 @@ subroutine set_dependent_diagnostics(MIS, ADp, CDp, G, GV, CS)
     call safe_alloc_ptr(CDp%diapyc_vel,isd,ied,jsd,jed,nz+1)
   endif
 
-  if (allocated(CS%esq)) then
-    allocate(CS%e(isd:ied,jsd:jed,nz+1), source=0.)
+!!$  if (allocated(CS%esq)) then
+!!$    allocate(CS%e(isd:ied,jsd:jed,nz+1), source=0.)
 !!$    call safe_alloc_ptr(CS%e,isd,ied,jsd,jed,nz+1)
-  endif
+!!$  endif
 
 end subroutine set_dependent_diagnostics
 
