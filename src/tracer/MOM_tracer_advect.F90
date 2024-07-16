@@ -764,7 +764,7 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
           endif ; enddo ; endif
         elseif (flux_type == 2) then
           if (associated(Tr(m)%ad_x_param)) then ; do I=is-1,ie ; if (do_i(i,j) .or. do_i(i+1,j)) then
-            Tr(m)%ad_x_param(I,j,k) = Tr(m)%ad_x_resolved(I,j,k) + flux_x(I,j,m)*Idt
+            Tr(m)%ad_x_param(I,j,k) = Tr(m)%ad_x_param(I,j,k) + flux_x(I,j,m)*Idt
           endif ; enddo ; endif
         endif ! the case of flux_type not equal 0, 1, or 2 is caught in advect_tracer above.
       endif ! advect_this_tracer
@@ -1232,10 +1232,10 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
     !$OMP end ordered
   elseif (flux_type == 2) then
     !$OMP ordered
-    do m=1,ntr ; if (associated(Tr(m)%ad_y_resolved)) then
+    do m=1,ntr ; if (associated(Tr(m)%ad_y_param)) then
       do J=js-1,je ; if (domore_v_initial(J)) then
         do i=is,ie ; if (do_i(i,j) .or. do_i(i,j+1)) then
-          Tr(m)%ad_y_resolved(i,J,k) = Tr(m)%ad_y_resolved(i,J,k) + flux_y(i,m,J)*Idt
+          Tr(m)%ad_y_param(i,J,k) = Tr(m)%ad_y_param(i,J,k) + flux_y(i,m,J)*Idt
         endif ; enddo
       endif ; enddo
     endif ; enddo ! End of m-loop.
