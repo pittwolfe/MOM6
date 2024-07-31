@@ -91,7 +91,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
                                                       !! flow
                                   
   ! local variables
-  integer :: flux_type_        !< To allow setting a default value for flux_type                                                             
+  integer :: flux_type_ctrl        !< To allow setting a default value for flux_type                                                             
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)) :: &
     hprev           ! cell volume at the end of previous tracer change [H L2 ~> m3 or kg]
   real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)) :: &
@@ -150,8 +150,8 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
   if (present(max_iter_in)) max_iter = max_iter_in
   if (present(x_first_in))  x_first = x_first_in
   
-  flux_type_ = 0
-  if (present(flux_type)) flux_type_ = flux_type ! default to residual flow
+  flux_type_ctrl = 0
+  if (present(flux_type)) flux_type_ctrl = flux_type ! default to residual flow
   
   call cpu_clock_begin(id_clock_pass)
   call create_group_pass(CS%pass_uhr_vhr_t_hprev, uhr, vhr, G%Domain)
@@ -205,7 +205,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
   enddo ; enddo
 
   ! initialize diagnostic fluxes and tendencies and determine which tracers to advect
-  if (flux_type_ == 0) then ! Flux is residual
+  if (flux_type_ctrl == 0) then ! Flux is residual
     !$OMP do
     do m=1,ntr
       advect_this_tracer(m) = .true. ! Advect all the tracers regardless of diagnostic output
@@ -216,7 +216,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
       if (associated(Reg%Tr(m)%ad2d_y)) Reg%Tr(m)%ad2d_y(:,:) = 0.0
     enddo
     !$OMP end parallel
-  elseif (flux_type_ == 1) then ! Flux is resolved
+  elseif (flux_type_ctrl == 1) then ! Flux is resolved
     !$OMP do
     do m=1,ntr
       if (associated(Reg%Tr(m)%ad_x_resolved)) then
@@ -229,7 +229,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
       endif
     enddo
     !$OMP end parallel
-  elseif (flux_type_ == 2) then ! Flux is parameterized
+  elseif (flux_type_ctrl == 2) then ! Flux is parameterized
     !$OMP do
     do m=1,ntr
       if (associated(Reg%Tr(m)%ad_x_param)) then
@@ -245,7 +245,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
   else
     call MOM_error(FATAL, &
           "Inconsistent flux type in advect_tracer. Must be of 0 (residual), 1 (resolved), or 2 (parameterized)")
-  endif ! flux_type_
+  endif ! flux_type_ctrl
 
   isv = is ; iev = ie ; jsv = js ; jev = je
 
@@ -302,7 +302,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
         ! First, advect zonally.
         call advect_x(Reg%Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
                       isv, iev, jsv-stencil, jev+stencil, k, G, GV, US, &
-                      CS%usePPM, CS%useHuynh, flux_type_, advect_this_tracer)
+                      CS%usePPM, CS%useHuynh, flux_type_ctrl, advect_this_tracer)
       endif ; enddo
 
       !$OMP do ordered
@@ -310,7 +310,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
         !  Next, advect meridionally.
         call advect_y(Reg%Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
                       isv, iev, jsv, jev, k, G, GV, US, &
-                      CS%usePPM, CS%useHuynh, flux_type_, advect_this_tracer)
+                      CS%usePPM, CS%useHuynh, flux_type_ctrl, advect_this_tracer)
 
         ! Update domore_k(k) for the next iteration
         domore_k(k) = 0
@@ -326,7 +326,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
         ! First, advect meridionally.
         call advect_y(Reg%Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
                       isv-stencil, iev+stencil, jsv, jev, k, G, GV, US, &
-                      CS%usePPM, CS%useHuynh, flux_type_, advect_this_tracer)
+                      CS%usePPM, CS%useHuynh, flux_type_ctrl, advect_this_tracer)
       endif ; enddo
 
       !$OMP do ordered
@@ -334,7 +334,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
         ! Next, advect zonally.
         call advect_x(Reg%Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
                       isv, iev, jsv, jev, k, G, GV, US, &
-                      CS%usePPM, CS%useHuynh, flux_type_, advect_this_tracer)
+                      CS%usePPM, CS%useHuynh, flux_type_ctrl, advect_this_tracer)
 
         ! Update domore_k(k) for the next iteration
         domore_k(k) = 0
