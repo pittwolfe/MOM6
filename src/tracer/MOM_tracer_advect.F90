@@ -85,13 +85,13 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
                                                   !! through the meridional faces [H L2 ~> m3 or kg]
   ! The next optional argument is for diagnosing resolved vs parameterized tracer flux and control
   ! which diagnostics are written. The tracers are only updated if flux_type = 0 (the default). Otherwise
-  ! the routines are dry run to collect diagnostics. 
+  ! the routines are dry run to collect diagnostics.
   integer,       optional, intent(in)    :: flux_type !< Indicates whether uhtr, vhtr are the flux due to
                                                       !! the residual (= 0), resolved (= 1), or parameterized (= 2)
                                                       !! flow
-                                  
+
   ! local variables
-  integer :: flux_type_ctrl        !< To allow setting a default value for flux_type                                                             
+  integer :: flux_type_ctrl        !< To allow setting a default value for flux_type
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)) :: &
     hprev           ! cell volume at the end of previous tracer change [H L2 ~> m3 or kg]
   real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)) :: &
@@ -107,11 +107,11 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
   logical :: domore_u(SZJ_(G),SZK_(GV))  ! domore_u and domore_v indicate whether there is more
   logical :: domore_v(SZJB_(G),SZK_(GV)) ! advection to be done in the corresponding row or column.
   logical :: x_first            ! If true, advect in the x-direction first.
-  logical :: advect_this_tracer(Reg%ntr) ! If true, advect the mth tracer. Diagnostics of advection due to the 
-                                       ! resolved and parameterized flow are collected by re-running the advection 
+  logical :: advect_this_tracer(Reg%ntr) ! If true, advect the mth tracer. Diagnostics of advection due to the
+                                       ! resolved and parameterized flow are collected by re-running the advection
                                        ! routines with different advecting fluxes without updating the tracer.
                                        ! This can be expensive if there are lots of tracers and only a few you
-                                       ! want diagnostics about. We therefore only calculate advection on the 
+                                       ! want diagnostics about. We therefore only calculate advection on the
                                        ! tracers for which there are active resolved/parameterized diagnostics.
   integer :: max_iter           ! maximum number of iterations in each layer
   integer :: domore_k(SZK_(GV))
@@ -149,10 +149,10 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
 
   if (present(max_iter_in)) max_iter = max_iter_in
   if (present(x_first_in))  x_first = x_first_in
-  
+
   flux_type_ctrl = 0
   if (present(flux_type)) flux_type_ctrl = flux_type ! default to residual flow
-  
+
   call cpu_clock_begin(id_clock_pass)
   call create_group_pass(CS%pass_uhr_vhr_t_hprev, uhr, vhr, G%Domain)
   call create_group_pass(CS%pass_uhr_vhr_t_hprev, hprev, G%Domain)
@@ -236,7 +236,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
         Reg%Tr(m)%ad_x_param(:,:,:) = 0.0
         advect_this_tracer(m) = .true. ! advect this tracer
       endif
-      if (associated(Reg%Tr(m)%ad_y_param)) then 
+      if (associated(Reg%Tr(m)%ad_y_param)) then
         Reg%Tr(m)%ad_y_param(:,:,:) = 0.0
         advect_this_tracer(m) = .true. ! advect this tracer
       endif
@@ -380,7 +380,7 @@ end subroutine advect_tracer
 !> This subroutine does 1-d flux-form advection in the zonal direction using
 !! a monotonic piecewise linear scheme.
 subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
-                    is, ie, js, je, k, G, GV, US, usePPM, useHuynh, & 
+                    is, ie, js, je, k, G, GV, US, usePPM, useHuynh, &
                     flux_type, advect_this_tracer)
   type(ocean_grid_type),                     intent(inout) :: G    !< The ocean's grid structure
   type(verticalGrid_type),                   intent(in)    :: GV   !< The ocean's vertical grid structure
@@ -592,10 +592,10 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
             else
               i_up = i+1
             endif
-    
+
             ! Implementation of PPM-H3
             Tp = T_tmp(i_up+1,m) ; Tc = T_tmp(i_up,m) ; Tm = T_tmp(i_up-1,m)
-    
+
             if (useHuynh) then
               aL = ( 5.*Tc + ( 2.*Tm - Tp ) )/6. ! H3 estimate
               aL = max( min(Tc,Tm), aL) ; aL = min( max(Tc,Tm), aL) ! Bound
@@ -605,7 +605,7 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
               aL = 0.5 * ((Tm + Tc) + (slope_x(i_up-1,m) - slope_x(i_up,m)) / 3.)
               aR = 0.5 * ((Tc + Tp) + (slope_x(i_up,m) - slope_x(i_up+1,m)) / 3.)
             endif
-    
+
             dA = aR - aL ; mA = 0.5*( aR + aL )
             if (G%mask2dCu(I_up,j)*G%mask2dCu(I_up-1,j)*(Tp-Tc)*(Tc-Tm) <= 0.) then
               aL = Tc ; aR = Tc ! PCM for local extrema and boundary cells
@@ -614,9 +614,9 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
             elseif ( dA*(Tc-mA) < - (dA*dA)/6. ) then
               aR = 3.*Tc - 2.*aL
             endif
-    
+
             a6 = 6.*Tc - 3. * (aR + aL) ! Curvature
-    
+
             if (uhh(I) >= 0.0) then
               flux_x(I,j,m) = uhh(I)*( aR - 0.5 * CFL(I) * ( &
                    ( aR - aL ) - a6 * ( 1. - 2./3. * CFL(I) ) ) )
@@ -731,7 +731,7 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
     ! update tracer concentration from i-flux and save some diagnostics
     do m=1,ntr
       if (advect_this_tracer(m)) then
-  
+
         ! update tracer
         if (flux_type == 0) then ! Only update tracer if using residual flux
           do i=is,ie
@@ -743,13 +743,13 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
             endif
           enddo
         endif ! flux_type == 0
-  
+
         ! diagnostics
         if (flux_type == 0) then
           if (associated(Tr(m)%ad_x)) then ; do I=is-1,ie ; if (do_i(i,j) .or. do_i(i+1,j)) then
             Tr(m)%ad_x(I,j,k) = Tr(m)%ad_x(I,j,k) + flux_x(I,j,m)*Idt
           endif ; enddo ; endif
-    
+
           ! diagnose convergence of flux_x (do not use the Ihnew(i) part of the logic).
           ! division by areaT to get into W/m2 for heat and kg/(s*m2) for salt.
           if (associated(Tr(m)%advection_xy)) then
@@ -800,7 +800,7 @@ end subroutine advect_x
 !> This subroutine does 1-d flux-form advection using a monotonic piecewise
 !! linear scheme.
 subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
-                    is, ie, js, je, k, G, GV, US, usePPM, useHuynh, & 
+                    is, ie, js, je, k, G, GV, US, usePPM, useHuynh, &
                     flux_type, advect_this_tracer)
   type(ocean_grid_type),                     intent(inout) :: G    !< The ocean's grid structure
   type(verticalGrid_type),                   intent(in)    :: GV   !< The ocean's vertical grid structure
@@ -1023,10 +1023,10 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
             else
               j_up = j + 1
             endif
-    
+
             ! Implementation of PPM-H3
             Tp = T_tmp(i,m,j_up+1) ; Tc = T_tmp(i,m,j_up) ; Tm = T_tmp(i,m,j_up-1)
-    
+
             if (useHuynh) then
               aL = ( 5.*Tc + ( 2.*Tm - Tp ) )/6. ! H3 estimate
               aL = max( min(Tc,Tm), aL) ; aL = min( max(Tc,Tm), aL) ! Bound
@@ -1036,7 +1036,7 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
               aL = 0.5 * ((Tm + Tc) + (slope_y(i,m,j_up-1) - slope_y(i,m,j_up)) / 3.)
               aR = 0.5 * ((Tc + Tp) + (slope_y(i,m,j_up) - slope_y(i,m,j_up+1)) / 3.)
             endif
-    
+
             dA = aR - aL ; mA = 0.5*( aR + aL )
             if (G%mask2dCv(i,J_up)*G%mask2dCv(i,J_up-1)*(Tp-Tc)*(Tc-Tm) <= 0.) then
               aL = Tc ; aR = Tc ! PCM for local extrema and boundary cells
@@ -1045,9 +1045,9 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
             elseif ( dA*(Tc-mA) < - (dA*dA)/6. ) then
               aR = 3.*Tc - 2.*aL
             endif
-    
+
             a6 = 6.*Tc - 3. * (aR + aL) ! Curvature
-    
+
             if (vhh(i,J) >= 0.0) then
               flux_y(i,m,J) = vhh(i,J)*( aR - 0.5 * CFL(i) * ( &
                    ( aR - aL ) - a6 * ( 1. - 2./3. * CFL(I) ) ) )
@@ -1172,13 +1172,13 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
     ! update tracer and save some diagnostics
     do m=1,ntr
       if (advect_this_tracer(m)) then
-      
+
         if (flux_type == 0) then ! Only update tracer if using residual flux
           do i=is,ie ; if (do_i(i,j)) then
             Tr(m)%t(i,j,k) = (Tr(m)%t(i,j,k) * hlst(i) - &
                               (flux_y(i,m,J) - flux_y(i,m,J-1))) * Ihnew(i)
           endif ; enddo
-  
+
           ! diagnose convergence of flux_y and add to convergence of flux_x.
           ! division by areaT to get into W/m2 for heat and kg/(s*m2) for salt.
           if (associated(Tr(m)%advection_xy)) then

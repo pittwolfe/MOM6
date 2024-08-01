@@ -1275,7 +1275,7 @@ subroutine step_MOM_dynamics(forces, p_surf_begin, p_surf_end, dt, dt_thermo, &
     if (showCallTree) call callTree_waypoint("finished step_MOM_dyn_unsplit (step_MOM)")
 
   endif ! -------------------------------------------------- end SPLIT
-  
+
   ! Accumulate resolved flux for tracer diagnostics
   if (CS%accumulate_resolved_flux) then
     !$OMP parallel do default(shared)
@@ -1439,7 +1439,7 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
 
   is  = G%isc ; ie  = G%iec ; js  = G%jsc ; je  = G%jec ; nz = GV%ke
   Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
-  
+
   if (CS%debug) then
     call cpu_clock_begin(id_clock_other)
     call hchksum(h,"Pre-advection h", G%HI, haloshift=1, scale=GV%H_to_MKS)
@@ -1469,7 +1469,7 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
   if (CS%debug) call MOM_tracer_chksum("Pre-advect ", CS%tracer_Reg, G)
   call advect_tracer(h, CS%uhtr, CS%vhtr, CS%OBC, CS%t_dyn_rel_adv, G, GV, US, &
                      CS%tracer_adv_CSp, CS%tracer_Reg, x_first_in=x_first, flux_type=0)
-                     
+
   ! Check to see if there are any diagnostics for separate tracer fluxes due to resolved flow
   do_resolved_advection = .false.
   do m=1,CS%tracer_Reg%ntr
@@ -1480,7 +1480,7 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
     call advect_tracer(h, CS%uhtr_resolved, CS%vhtr_resolved, CS%OBC, CS%t_dyn_rel_adv, G, GV, US, &
                        CS%tracer_adv_CSp, CS%tracer_Reg, x_first_in=x_first, flux_type=1)
   endif
-  
+
   ! Check to see if there are any diagnostics for separate tracer fluxes due to parameterized flow
   do_param_advection = .false.
   do m=1,CS%tracer_Reg%ntr
@@ -1501,7 +1501,6 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
                        CS%tracer_adv_CSp, CS%tracer_Reg, x_first_in=x_first, flux_type=2)
   endif
 
-  
   if (CS%debug) call MOM_tracer_chksum("Post-advect ", CS%tracer_Reg, G)
   call tracer_hordiff(h, CS%t_dyn_rel_adv, CS%MEKE, CS%VarMix, CS%visc, G, GV, US, &
                       CS%tracer_diff_CSp, CS%tracer_Reg, CS%tv)
@@ -4305,7 +4304,7 @@ subroutine MOM_end(CS)
   ! TODO: debug_truncations deallocation
 
   DEALLOC_(CS%uhtr) ; DEALLOC_(CS%vhtr)
-  
+
   if (CS%accumulate_resolved_flux) then
     DEALLOC_(CS%uhtr_resolved) ; DEALLOC_(CS%vhtr_resolved)
   endif
