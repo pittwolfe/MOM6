@@ -322,6 +322,13 @@ type, public :: MOM_control_struct ; private
   type(diag_grid_storage)  :: diag_pre_sync !< The grid (thicknesses) before remapping
   type(diag_grid_storage)  :: diag_pre_dyn  !< The grid (thicknesses) before dynamics
 
+  logical :: accumulate_resolved_flux = .false. !< If true, accumulate resolved flux for tracers for diagnostics
+                                                !! separating the tracer flux due to resolved and parameterized flow
+  real ALLOCABLE_, dimension(NIMEMB_PTR_,NJMEM_,NKMEM_) :: &
+    uhtr_resolved   !< accumulated zonal thickness fluxes due to resolved flow to advect tracers [H L2 ~> m3 or kg]
+  real ALLOCABLE_, dimension(NIMEM_,NJMEMB_PTR_,NKMEM_) :: &
+    vhtr_resolved   !< accumulated meridional thickness fluxes due to resolved flow to advect tracers [H L2 ~> m3 or kg]
+
   ! The remainder of this type provides pointers to child module control structures.
 
   type(MOM_dyn_unsplit_CS),      pointer :: dyn_unsplit_CSp => NULL()
@@ -1081,6 +1088,19 @@ subroutine step_MOM_dynamics(forces, p_surf_begin, p_surf_end, dt, dt_thermo, &
 
   endif ! -------------------------------------------------- end SPLIT
 
+  ! Accumulate resolved flux for tracer diagnostics
+  if (CS%accumulate_resolved_flux) then
+    !$OMP parallel do default(shared)
+    do k=1,nz
+      do j=js-2,je+2 ; do I=Isq-2,Ieq+2
+        CS%uhtr_resolved(I,j,k) = CS%uhtr_resolved(I,j,k) + CS%uh(I,j,k)*dt
+      enddo ; enddo
+      do J=Jsq-2,Jeq+2 ; do i=is-2,ie+2
+        CS%vhtr_resolved(i,J,k) = CS%vhtr_resolved(i,J,k) + CS%vh(i,J,k)*dt
+      enddo ; enddo
+    enddo
+  endif
+
   if (CS%thickness_diffuse .and. .not.CS%thickness_diffuse_first) then
     call cpu_clock_begin(id_clock_thick_diff)
 
@@ -1157,8 +1177,20 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
                                                     !! of the time step.
   type(group_pass_type) :: pass_T_S
   integer :: halo_sz ! The size of a halo where data must be valid.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)) :: &
+    uhtr_tmp             ! Temp. variable for advecting with alternate volume fluxes [H L2 ~> m3 or kg]
+  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)) :: &
+    vhtr_tmp             ! Temp. variable for advecting with alternate volume fluxes[H L2 ~> m3 or kg]
+  logical :: do_resolved_advection ! do advection with resolved flow
+  logical :: do_param_advection ! do advection with parameterized flow
+  integer :: i, j, k, m, is, ie, js, je, Isq, Ieq, Jsq, Jeq, nz
+  integer :: IsdB, IedB, JsdB, JedB
   logical :: showCallTree
+
   showCallTree = callTree_showQuery()
+
+  is  = G%isc ; ie  = G%iec ; js  = G%jsc ; je  = G%jec ; nz = GV%ke
+  Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
 
   if (CS%debug) then
     call cpu_clock_begin(id_clock_other)
@@ -1179,7 +1211,39 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
   call enable_averages(CS%t_dyn_rel_adv, Time_local, CS%diag)
 
   call advect_tracer(h, CS%uhtr, CS%vhtr, CS%OBC, CS%t_dyn_rel_adv, G, GV, US, &
-                     CS%tracer_adv_CSp, CS%tracer_Reg)
+                     CS%tracer_adv_CSp, CS%tracer_Reg, flux_type=0)
+
+  ! Check to see if there are any diagnostics for separate tracer fluxes due to resolved flow
+  do_resolved_advection = .false.
+  do m=1,CS%tracer_Reg%ntr
+      if (associated(CS%tracer_Reg%Tr(m)%ad_x_resolved) .or. &
+          associated(CS%tracer_Reg%Tr(m)%ad_y_resolved)) do_resolved_advection = .true.
+  enddo
+  if (do_resolved_advection) then
+    call advect_tracer(h, CS%uhtr_resolved, CS%vhtr_resolved, CS%OBC, CS%t_dyn_rel_adv, G, GV, US, &
+                       CS%tracer_adv_CSp, CS%tracer_Reg, flux_type=1)
+  endif
+
+  ! Check to see if there are any diagnostics for separate tracer fluxes due to parameterized flow
+  do_param_advection = .false.
+  do m=1,CS%tracer_Reg%ntr
+      if (associated(CS%tracer_Reg%Tr(m)%ad_x_param) .or. &
+          associated(CS%tracer_Reg%Tr(m)%ad_y_param)) do_param_advection = .true.
+  enddo
+  if (do_param_advection) then
+    !$OMP parallel do default(shared)
+    do k=1,nz
+      do j=js-2,je+2 ; do I=Isq-2,Ieq+2
+        uhtr_tmp(I,j,k) = CS%uhtr(I,j,k) - CS%uhtr_resolved(I,j,k)
+      enddo ; enddo
+      do J=Jsq-2,Jeq+2 ; do i=is-2,ie+2
+        vhtr_tmp(i,J,k) = CS%vhtr(i,J,k) - CS%vhtr_resolved(i,J,k)
+      enddo ; enddo
+    enddo
+    call advect_tracer(h, uhtr_tmp, vhtr_tmp, CS%OBC, CS%t_dyn_rel_adv, G, GV, US, &
+                       CS%tracer_adv_CSp, CS%tracer_Reg, flux_type=2)
+  endif
+
   call tracer_hordiff(h, CS%t_dyn_rel_adv, CS%MEKE, CS%VarMix, G, GV, US, &
                       CS%tracer_diff_CSp, CS%tracer_Reg, CS%tv)
   if (showCallTree) call callTree_waypoint("finished tracer advection/diffusion (step_MOM)")
@@ -1202,6 +1266,10 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
   call cpu_clock_begin(id_clock_thermo) ; call cpu_clock_begin(id_clock_tracer)
   CS%uhtr(:,:,:) = 0.0
   CS%vhtr(:,:,:) = 0.0
+  if (CS%accumulate_resolved_flux) then
+    CS%uhtr_resolved(:,:,:) = 0.0
+    CS%vhtr_resolved(:,:,:) = 0.0
+  endif
   CS%t_dyn_rel_adv = 0.0
   call cpu_clock_end(id_clock_tracer) ; call cpu_clock_end(id_clock_thermo)
 
@@ -1664,7 +1732,7 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, restart_CSp, &
   ! This include declares and sets the variable "version".
 # include "version_variable.h"
 
-  integer :: i, j, k, is, ie, js, je, isd, ied, jsd, jed, nz
+  integer :: i, j, k, m, is, ie, js, je, isd, ied, jsd, jed, nz
   integer :: IsdB, IedB, JsdB, JedB
   real    :: dtbt        ! The barotropic timestep [s]
 
@@ -2685,6 +2753,18 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, restart_CSp, &
     call ALE_register_diags(Time, G, GV, US, diag, CS%ALE_CSp)
   endif
 
+  ! determine if we need to accumulate resolved transports for tracer advection diagnostics
+  do m = 1,CS%tracer_Reg%ntr
+    if (CS%tracer_Reg%Tr(m)%id_adx_resolved > 0 .or. &
+        CS%tracer_Reg%Tr(m)%id_ady_resolved > 0 .or. &
+        CS%tracer_Reg%Tr(m)%id_adx_param    > 0 .or. &
+        CS%tracer_Reg%Tr(m)%id_ady_param    > 0) CS%accumulate_resolved_flux = .true.
+  enddo
+  if (CS%accumulate_resolved_flux) then
+    ALLOC_(CS%uhtr_resolved(IsdB:IedB,jsd:jed,nz)) ; CS%uhtr_resolved(:,:,:) = 0.0
+    ALLOC_(CS%vhtr_resolved(isd:ied,JsdB:JedB,nz)) ; CS%vhtr_resolved(:,:,:) = 0.0
+  endif
+
   ! This subroutine initializes any tracer packages.
   new_sim = is_new_run(restart_CSp)
   call tracer_flow_control_init(.not.new_sim, Time, G, GV, US, CS%h, param_file, &
@@ -3552,6 +3632,10 @@ subroutine MOM_end(CS)
   if (CS%offline_tracer_mode) call offline_transport_end(CS%offline_CSp)
 
   DEALLOC_(CS%uhtr) ; DEALLOC_(CS%vhtr)
+  if (CS%accumulate_resolved_flux) then
+    DEALLOC_(CS%uhtr_resolved) ; DEALLOC_(CS%vhtr_resolved)
+  endif
+
   if (CS%split) then
     call end_dyn_split_RK2(CS%dyn_split_RK2_CSp)
   elseif (CS%use_RK2) then
