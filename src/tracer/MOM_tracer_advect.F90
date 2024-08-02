@@ -930,6 +930,7 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
                 endif
               endif ! advect_this_tracer
             enddo
+            do m = 1,ntr ! Apply update tracer values for slope calculation
               if (advect_this_tracer(m)) then
                 do j=segment%HI%JsdB-1,segment%HI%JsdB+1
                   Tp = T_tmp(i,m,j+1) ; Tc = T_tmp(i,m,j) ; Tm = T_tmp(i,m,j-1)
