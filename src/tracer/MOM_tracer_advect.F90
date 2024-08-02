@@ -204,22 +204,22 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, &
     !$OMP do
     do m=1,ntr
       advect_this_tracer(m) = .true. ! Advect all the tracers regardless of diagnostic output
-      if (associated(Reg%Tr(m)%ad_x)) Reg%Tr(m)%ad_x(:,:,:) = 0.0
-      if (associated(Reg%Tr(m)%ad_y)) Reg%Tr(m)%ad_y(:,:,:) = 0.0
-      if (associated(Reg%Tr(m)%advection_xy)) Reg%Tr(m)%advection_xy(:,:,:) = 0.0
-      if (associated(Reg%Tr(m)%ad2d_x)) Reg%Tr(m)%ad2d_x(:,:) = 0.0
-      if (associated(Reg%Tr(m)%ad2d_y)) Reg%Tr(m)%ad2d_y(:,:) = 0.0
+      if (associated(Tr(m)%ad_x)) Tr(m)%ad_x(:,:,:) = 0.0
+      if (associated(Tr(m)%ad_y)) Tr(m)%ad_y(:,:,:) = 0.0
+      if (associated(Tr(m)%advection_xy)) Tr(m)%advection_xy(:,:,:) = 0.0
+      if (associated(Tr(m)%ad2d_x)) Tr(m)%ad2d_x(:,:) = 0.0
+      if (associated(Tr(m)%ad2d_y)) Tr(m)%ad2d_y(:,:) = 0.0
     enddo
     !$OMP end parallel
   elseif (flux_type_ctrl == 1) then ! Flux is resolved
     !$OMP do
     do m=1,ntr
-      if (associated(Reg%Tr(m)%ad_x_resolved)) then
-        Reg%Tr(m)%ad_x_resolved(:,:,:) = 0.0
+      if (associated(Tr(m)%ad_x_resolved)) then
+        Tr(m)%ad_x_resolved(:,:,:) = 0.0
         advect_this_tracer(m) = .true. ! advect this tracer
       endif
-      if (associated(Reg%Tr(m)%ad_y_resolved)) then
-        Reg%Tr(m)%ad_y_resolved(:,:,:) = 0.0
+      if (associated(Tr(m)%ad_y_resolved)) then
+        Tr(m)%ad_y_resolved(:,:,:) = 0.0
         advect_this_tracer(m) = .true. ! advect this tracer
       endif
     enddo
@@ -227,12 +227,12 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, &
   elseif (flux_type_ctrl == 2) then ! Flux is parameterized
     !$OMP do
     do m=1,ntr
-      if (associated(Reg%Tr(m)%ad_x_param)) then
-        Reg%Tr(m)%ad_x_param(:,:,:) = 0.0
+      if (associated(Tr(m)%ad_x_param)) then
+        Tr(m)%ad_x_param(:,:,:) = 0.0
         advect_this_tracer(m) = .true. ! advect this tracer
       endif
-      if (associated(Reg%Tr(m)%ad_y_param)) then
-        Reg%Tr(m)%ad_y_param(:,:,:) = 0.0
+      if (associated(Tr(m)%ad_y_param)) then
+        Tr(m)%ad_y_param(:,:,:) = 0.0
         advect_this_tracer(m) = .true. ! advect this tracer
       endif
     enddo
@@ -580,9 +580,10 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
             else
               i_up = i+1
             endif
+      
             ! Implementation of PPM-H3
             Tp = T_tmp(i_up+1,m) ; Tc = T_tmp(i_up,m) ; Tm = T_tmp(i_up-1,m)
-
+      
             if (useHuynh) then
               aL = ( 5.*Tc + ( 2.*Tm - Tp ) )/6. ! H3 estimate
               aL = max( min(Tc,Tm), aL) ; aL = min( max(Tc,Tm), aL) ! Bound
@@ -592,18 +593,18 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
               aL = 0.5 * ((Tm + Tc) + (slope_x(i_up-1,m) - slope_x(i_up,m)) / 3.)
               aR = 0.5 * ((Tc + Tp) + (slope_x(i_up,m) - slope_x(i_up+1,m)) / 3.)
             endif
-
+      
             dA = aR - aL ; mA = 0.5*( aR + aL )
             if (G%mask2dCu(I_up,j)*G%mask2dCu(I_up-1,j)*(Tp-Tc)*(Tc-Tm) <= 0.) then
-              aL = Tc ; aR = Tc ! PCM for local extrema and boundary cells
+              aL = Tc ; aR = Tc ! PCM for local extremum and bounadry cells
             elseif ( dA*(Tc-mA) > (dA*dA)/6. ) then
               aL = 3.*Tc - 2.*aR
             elseif ( dA*(Tc-mA) < - (dA*dA)/6. ) then
               aR = 3.*Tc - 2.*aL
             endif
-
+      
             a6 = 6.*Tc - 3. * (aR + aL) ! Curvature
-
+      
             if (uhh(I) >= 0.0) then
               flux_x(I,j,m) = uhh(I)*( aR - 0.5 * CFL(I) * ( &
                    ( aR - aL ) - a6 * ( 1. - 2./3. * CFL(I) ) ) )
@@ -612,7 +613,7 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
                    ( aR - aL ) + a6 * ( 1. - 2./3. * CFL(I) ) ) )
             endif
           enddo
-        endif
+        endif ! advect_this_tracer
       enddo
     else ! PLM
       do m=1,ntr
@@ -636,7 +637,7 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
               flux_x(I,j,m) = uhh(I)*( Tc - 0.5 * slope_x(i+1,m) * ( 1. - CFL(I) ) )
             endif
           enddo
-        endif
+        endif ! advect_this_tracer
       enddo
     endif ! usePPM
 
@@ -762,15 +763,15 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
 
   ! compute ad2d_x diagnostic outside above j-loop so as to make the summation ordered when OMP is active.
 
-  if (flux_type == 0) then ! Only update tracer if using residual flux
+  if (flux_type == 0) then
     !$OMP ordered
-    do m=1,ntr ; if (associated(Tr(m)%ad2d_x)) then
-      do j=js,je ; if (domore_u_initial(j,k)) then
-        do I=is-1,ie ; if (do_i(i,j) .or. do_i(i+1,j)) then
+    do j=js,je ; if (domore_u_initial(j,k)) then
+      do m=1,ntr
+        if (associated(Tr(m)%ad2d_x)) then ; do i=is,ie ; if (do_i(i,j)) then
           Tr(m)%ad2d_x(I,j) = Tr(m)%ad2d_x(I,j) + flux_x(I,j,m)*Idt
-        endif ; enddo
-      endif ; enddo
-    endif ; enddo ! End of m-loop.
+        endif ; enddo ; endif
+      enddo
+    endif ; enddo ! End of j-loop.
     !$OMP end ordered
   endif
   
@@ -1175,20 +1176,22 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
           endif ; enddo ; endif
         endif ! the case of flux_type not equal 0, 1, or 2 is caught in advect_tracer above.
       endif ! advect_this_tracer          
-      enddo
+    enddo
   endif ; enddo ! End of j-loop.
 
   ! compute ad2d_y diagnostic outside above j-loop so as to make the summation ordered when OMP is active.
 
-  !$OMP ordered
-  do j=js,je ; if (do_j_tr(j)) then
-    do m=1,ntr
-      if (associated(Tr(m)%ad2d_y)) then ; do i=is,ie ; if (do_i(i,j)) then
-        Tr(m)%ad2d_y(i,J) = Tr(m)%ad2d_y(i,J) + flux_y(i,m,J)*Idt
-      endif ; enddo ; endif
-    enddo
-  endif ; enddo ! End of j-loop.
-  !$OMP end ordered
+  if (flux_type == 0) then
+    !$OMP ordered
+    do j=js,je ; if (do_j_tr(j)) then
+      do m=1,ntr
+        if (associated(Tr(m)%ad2d_y)) then ; do i=is,ie ; if (do_i(i,j)) then
+          Tr(m)%ad2d_y(i,J) = Tr(m)%ad2d_y(i,J) + flux_y(i,m,J)*Idt
+        endif ; enddo ; endif
+      enddo
+    endif ; enddo ! End of j-loop.
+    !$OMP end ordered
+  endif
 
 end subroutine advect_y
 
