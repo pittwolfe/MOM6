@@ -13,7 +13,7 @@ use MOM_file_parser,   only : get_param, param_file_type, log_version
 use MOM_grid,          only : ocean_grid_type
 use MOM_horizontal_regridding, only : myStats, horiz_interp_and_extrap_tracer
 use MOM_interface_heights, only : dz_to_thickness_simple
-use MOM_regridding,    only : set_dz_neglect
+use MOM_regridding,    only : set_dz_neglect, set_h_neglect
 use MOM_remapping,     only : remapping_CS, initialize_remapping
 use MOM_unit_scaling,  only : unit_scale_type
 use MOM_verticalGrid,  only : verticalGrid_type
@@ -37,7 +37,8 @@ contains
 !> Initializes a tracer from a z-space data file, including any lateral regridding that is needed.
 subroutine MOM_initialize_tracer_from_Z(h, tr, G, GV, US, PF, src_file, src_var_nam, &
                           src_var_unit_conversion, src_var_record, homogenize, &
-                          useALEremapping, remappingScheme, src_var_gridspec, h_in_Z_units )
+                          useALEremapping, remappingScheme, src_var_gridspec, h_in_Z_units, &
+                          ongrid)
   type(ocean_grid_type),      intent(inout) :: G   !< Ocean grid structure.
   type(verticalGrid_type),    intent(in)    :: GV  !< Ocean vertical grid structure.
   type(unit_scale_type),      intent(in)    :: US  !< A dimensional unit scaling type
@@ -60,7 +61,10 @@ subroutine MOM_initialize_tracer_from_Z(h, tr, G, GV, US, PF, src_file, src_var_
                                                             !! thicknesses are in the units of height
                                                             !! ([Z ~> m]) instead of the usual units of
                                                             !! thicknesses ([H ~> m or kg m-2])
-
+  logical,          optional, intent(in)    :: ongrid       !< If true, then data are assumed to have been
+                                                            !! interpolated to the model horizontal grid. In this case,
+                                                            !! only extrapolation is performed by
+                                                            !! horiz_interp_and_extrap_tracer()
   ! Local variables
   real :: land_fill = 0.0  ! A value to use to replace missing values [CU ~> conc]
   real :: convert ! A conversion factor into the model's internal units [CU conc-1 ~> 1]
@@ -93,9 +97,9 @@ subroutine MOM_initialize_tracer_from_Z(h, tr, G, GV, US, PF, src_file, src_var_
 
   real :: missing_value ! A value indicating that there is no valid input data at this point [CU ~> conc]
   real :: dz_neglect              ! A negligibly small vertical layer extent used in
-                                  ! remapping cell reconstructions [Z ~> m]
+                                  ! remapping cell reconstructions [Z ~> m] or [H ~> m or kg m-2]
   real :: dz_neglect_edge         ! A negligibly small vertical layer extent used in
-                                  ! remapping edge value calculations [Z ~> m]
+                                  ! remapping edge value calculations [Z ~> m] or [H ~> m or kg m-2]
   logical :: om4_remap_via_sub_cells ! If true, use the OM4 remapping algorithm
   integer :: nPoints    ! The number of valid input data points in a column
   integer :: id_clock_routine, id_clock_ALE
@@ -117,17 +121,17 @@ subroutine MOM_initialize_tracer_from_Z(h, tr, G, GV, US, PF, src_file, src_var_
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = GV%ke
   isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
 
-  call callTree_enter(trim(mdl)//"(), MOM_state_initialization.F90")
+  call callTree_enter(trim(mdl)//"(), MOM_tracer_initialization_from_Z.F90")
 
   call get_param(PF, mdl, "Z_INIT_HOMOGENIZE", homog, &
                  "If True, then horizontally homogenize the interpolated "//&
                  "initial conditions.", default=.false.)
   call get_param(PF, mdl, "Z_INIT_ALE_REMAPPING", useALE, &
                  "If True, then remap straight to model coordinate from file.",&
-                 default=.true.)
+                 default=.false.)
   call get_param(PF, mdl, "Z_INIT_REMAPPING_SCHEME", remapScheme, &
                  "The remapping scheme to use if using Z_INIT_ALE_REMAPPING is True.", &
-                 default="PLM")
+                 default="PPM_IH4")
   call get_param(PF, mdl, "DEFAULT_ANSWER_DATE", default_answer_date, &
                  "This sets the default value for the various _ANSWER_DATE parameters.", &
                  default=99991231)
@@ -164,7 +168,8 @@ subroutine MOM_initialize_tracer_from_Z(h, tr, G, GV, US, PF, src_file, src_var_
 
   call horiz_interp_and_extrap_tracer(src_file, src_var_nam, recnum, &
             G, tr_z, mask_z, z_in, z_edges_in, missing_value, &
-            scale=convert, homogenize=homog, m_to_Z=US%m_to_Z, answer_date=hor_regrid_answer_date)
+            scale=convert, homogenize=homog, m_to_Z=US%m_to_Z, &
+            answer_date=hor_regrid_answer_date, ongrid=ongrid)
 
   kd = size(z_edges_in,1)-1
   call pass_var(tr_z,G%Domain)
@@ -178,9 +183,15 @@ subroutine MOM_initialize_tracer_from_Z(h, tr, G, GV, US, PF, src_file, src_var_
     allocate( h1(kd) )
     allocate( dzSrc(isd:ied,jsd:jed,kd) )
     allocate( hSrc(isd:ied,jsd:jed,kd) )
-    ! Set parameters for reconstructions
+    ! Set parameters for reconstructions in the right units
+    if (h_is_in_Z_units) then
+      dz_neglect = set_dz_neglect(GV, US, remap_answer_date, dz_neglect_edge)
+    else
+      dz_neglect = set_h_neglect(GV, remap_answer_date, dz_neglect_edge)
+    endif
     call initialize_remapping( remapCS, remapScheme, boundary_extrapolation=.false., &
-                               om4_remap_via_sub_cells=om4_remap_via_sub_cells, answer_date=remap_answer_date )
+                               om4_remap_via_sub_cells=om4_remap_via_sub_cells, answer_date=remap_answer_date, &
+                               H_neglect=dz_neglect, H_neglect_edge=dz_neglect_edge )
     ! Next we initialize the regridding package so that it knows about the target grid
 
     do j = js, je ; do i = is, ie
@@ -206,18 +217,15 @@ subroutine MOM_initialize_tracer_from_Z(h, tr, G, GV, US, PF, src_file, src_var_
     enddo ; enddo
 
     if (h_is_in_Z_units) then
-      ! Because h is in units of [Z ~> m], dzSrc is already in the right units, but we need to
-      ! specify negligible thickness values with the right units.
-      dz_neglect = set_dz_neglect(GV, US, remap_answer_date, dz_neglect_edge)
-      call ALE_remap_scalar(remapCS, G, GV, kd, dzSrc, tr_z, h, tr, all_cells=.false., answer_date=remap_answer_date, &
-                            H_neglect=dz_neglect, H_neglect_edge=dz_neglect_edge)
+      ! Because h is in units of [Z ~> m], dzSrc is already in the right units.
+      call ALE_remap_scalar(remapCS, G, GV, kd, dzSrc, tr_z, h, tr, all_cells=.false.)
     else
       ! Equation of state data is not available, so a simpler rescaling will have to suffice,
       ! but it might be problematic in non-Boussinesq mode.
       GV_loc = GV ; GV_loc%ke = kd
       call dz_to_thickness_simple(dzSrc, hSrc, G, GV_loc, US)
 
-      call ALE_remap_scalar(remapCS, G, GV, kd, hSrc, tr_z, h, tr, all_cells=.false., answer_date=remap_answer_date )
+      call ALE_remap_scalar(remapCS, G, GV, kd, hSrc, tr_z, h, tr, all_cells=.false.)
     endif
 
     deallocate( hSrc )

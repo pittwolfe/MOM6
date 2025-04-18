@@ -18,6 +18,7 @@ use MOM_interface_heights,     only : find_eta, thickness_to_dz
 use MOM_isopycnal_slopes,      only : vert_fill_TS
 use MOM_lateral_mixing_coeffs, only : VarMix_CS
 use MOM_MEKE_types,            only : MEKE_type
+use MOM_stochastics,           only : stochastic_CS
 use MOM_unit_scaling,          only : unit_scale_type
 use MOM_variables,             only : thermo_var_ptrs, cont_diag_ptrs
 use MOM_verticalGrid,          only : verticalGrid_type
@@ -48,6 +49,9 @@ type, public :: thickness_diffuse_CS ; private
   real    :: kappa_smooth        !< Vertical diffusivity used to interpolate more sensible values
                                  !! of T & S into thin layers [H Z T-1 ~> m2 s-1 or kg m-1 s-1]
   logical :: thickness_diffuse   !< If true, interfaces heights are diffused.
+  logical :: full_depth_khth_min !< If true, KHTH_MIN is enforced throughout the whole water column.
+                                 !! Otherwise, KHTH_MIN is only enforced at the surface. This parameter
+                                 !! is only available when KHTH_USE_EBT_STRUCT=True and KHTH_MIN>0.
   logical :: use_FGNV_streamfn   !< If true, use the streamfunction formulation of
                                  !! Ferrari et al., 2010, which effectively emphasizes
                                  !! graver vertical modes by smoothing in the vertical.
@@ -126,7 +130,7 @@ contains
 !> Calculates isopycnal height diffusion coefficients and applies isopycnal height diffusion
 !! by modifying to the layer thicknesses, h. Diffusivities are limited to ensure stability.
 !! Also returns along-layer mass fluxes used in the continuity equation.
-subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp, CS)
+subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp, CS, STOCH)
   type(ocean_grid_type),                      intent(in)    :: G      !< Ocean grid structure
   type(verticalGrid_type),                    intent(in)    :: GV     !< Vertical grid structure
   type(unit_scale_type),                      intent(in)    :: US     !< A dimensional unit scaling type
@@ -141,6 +145,7 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
   type(VarMix_CS), target,                    intent(in)    :: VarMix !< Variable mixing coefficients
   type(cont_diag_ptrs),                       intent(inout) :: CDp    !< Diagnostics for the continuity equation
   type(thickness_diffuse_CS),                 intent(inout) :: CS     !< Control structure for thickness_diffuse
+  type(stochastic_CS),                        intent(inout) :: STOCH !< Stochastic control structure
   ! Local variables
   real :: e(SZI_(G),SZJ_(G),SZK_(GV)+1) ! heights of interfaces, relative to mean
                                          ! sea level [Z ~> m], positive up.
@@ -179,7 +184,7 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
                                     ! to layer centers [L2 T-1 ~> m2 s-1]
   real :: KH_v_lay(SZI_(G),SZJ_(G)) ! Diagnostic of isopycnal height diffusivities at v-points averaged
                                     ! to layer centers [L2 T-1 ~> m2 s-1]
-  logical :: use_VarMix, Resoln_scaled, Depth_scaled, use_stored_slopes, khth_use_ebt_struct, use_Visbeck
+  logical :: use_VarMix, Resoln_scaled, Depth_scaled, use_stored_slopes, khth_use_vert_struct, use_Visbeck
   logical :: use_QG_Leith
   integer :: i, j, k, is, ie, js, je, nz
 
@@ -198,7 +203,7 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
   endif
 
   use_VarMix = .false. ; Resoln_scaled = .false. ; use_stored_slopes = .false.
-  khth_use_ebt_struct = .false. ; use_Visbeck = .false. ; use_QG_Leith = .false.
+  khth_use_vert_struct = .false. ; use_Visbeck = .false. ; use_QG_Leith = .false.
   Depth_scaled = .false.
 
   if (VarMix%use_variable_mixing) then
@@ -206,7 +211,7 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
     Resoln_scaled = VarMix%Resoln_scaled_KhTh
     Depth_scaled = VarMix%Depth_scaled_KhTh
     use_stored_slopes = VarMix%use_stored_slopes
-    khth_use_ebt_struct = VarMix%khth_use_ebt_struct
+    khth_use_vert_struct = allocated(VarMix%khth_struct)
     use_Visbeck = VarMix%use_Visbeck
     use_QG_Leith = VarMix%use_QG_Leith_GM
     if (allocated(VarMix%cg1)) cg1 => VarMix%cg1
@@ -218,12 +223,12 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
   !$OMP parallel do default(shared)
   do j=js,je ; do I=is-1,ie
     KH_u_CFL(I,j) = (0.25*CS%max_Khth_CFL) /  &
-      (dt * (G%IdxCu(I,j)*G%IdxCu(I,j) + G%IdyCu(I,j)*G%IdyCu(I,j)))
+      (dt * ((G%IdxCu(I,j)*G%IdxCu(I,j)) + (G%IdyCu(I,j)*G%IdyCu(I,j))))
   enddo ; enddo
   !$OMP parallel do default(shared)
-  do j=js-1,je ; do I=is,ie
+  do J=js-1,je ; do i=is,ie
     KH_v_CFL(i,J) = (0.25*CS%max_Khth_CFL) / &
-      (dt * (G%IdxCv(i,J)*G%IdxCv(i,J) + G%IdyCv(i,J)*G%IdyCv(i,J)))
+      (dt * ((G%IdxCv(i,J)*G%IdxCv(i,J)) + (G%IdyCv(i,J)*G%IdyCv(i,J))))
   enddo ; enddo
 
   ! Calculates interface heights, e, in [Z ~> m].
@@ -298,11 +303,19 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
     KH_u(I,j,1) = min(KH_u_CFL(I,j), Khth_loc_u(I,j))
   enddo ; enddo
 
-  if (khth_use_ebt_struct) then
-    !$OMP do
-    do K=2,nz+1 ; do j=js,je ; do I=is-1,ie
-      KH_u(I,j,K) = KH_u(I,j,1) * 0.5 * ( VarMix%ebt_struct(i,j,k-1) + VarMix%ebt_struct(i+1,j,k-1) )
-    enddo ; enddo ; enddo
+  if (khth_use_vert_struct) then
+    if (CS%full_depth_khth_min) then
+      !$OMP do
+      do K=2,nz+1 ; do j=js,je ; do I=is-1,ie
+        KH_u(I,j,K) = KH_u(I,j,1) * 0.5 * ( VarMix%khth_struct(i,j,k-1) + VarMix%khth_struct(i+1,j,k-1) )
+        KH_u(I,j,K) = max(KH_u(I,j,K), CS%Khth_Min)
+      enddo ; enddo ; enddo
+    else
+      !$OMP do
+      do K=2,nz+1 ; do j=js,je ; do I=is-1,ie
+        KH_u(I,j,K) = KH_u(I,j,1) * 0.5 * ( VarMix%khth_struct(i,j,k-1) + VarMix%khth_struct(i+1,j,k-1) )
+      enddo ; enddo ; enddo
+    endif
   else
     !$OMP do
     do K=2,nz+1 ; do j=js,je ; do I=is-1,ie
@@ -394,11 +407,19 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
     enddo ; enddo
   endif
 
-  if (khth_use_ebt_struct) then
-    !$OMP do
-    do K=2,nz+1 ; do J=js-1,je ; do i=is,ie
-      KH_v(i,J,K) = KH_v(i,J,1) * 0.5 * ( VarMix%ebt_struct(i,j,k-1) + VarMix%ebt_struct(i,j+1,k-1) )
-    enddo ; enddo ; enddo
+  if (khth_use_vert_struct) then
+      if (CS%full_depth_khth_min) then
+      !$OMP do
+      do K=2,nz+1 ; do J=js-1,je ; do i=is,ie
+        KH_v(i,J,K) = KH_v(i,J,1) * 0.5 * ( VarMix%khth_struct(i,j,k-1) + VarMix%khth_struct(i,j+1,k-1) )
+        KH_v(i,J,K) = max(KH_v(i,J,K), CS%Khth_Min)
+      enddo ; enddo ; enddo
+    else
+      !$OMP do
+      do K=2,nz+1 ; do J=js-1,je ; do i=is,ie
+        KH_v(i,J,K) = KH_v(i,J,1) * 0.5 * ( VarMix%khth_struct(i,j,k-1) + VarMix%khth_struct(i,j+1,k-1) )
+      enddo ; enddo ; enddo
+    endif
   else
     !$OMP do
     do K=2,nz+1 ; do J=js-1,je ; do i=is,ie
@@ -426,7 +447,7 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
     if (CS%MEKE_GEOMETRIC) then
       if (CS%MEKE_GEOM_answer_date < 20190101) then
         !$OMP do
-        do j=js,je ; do I=is,ie
+        do j=js,je ; do i=is,ie
           ! This does not give bitwise rotational symmetry.
           MEKE%Kh(i,j) = CS%MEKE_GEOMETRIC_alpha * MEKE%MEKE(i,j) / &
                          (0.25*(VarMix%SN_u(I,j)+VarMix%SN_u(I-1,j) + &
@@ -435,7 +456,7 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
         enddo ; enddo
       else
         !$OMP do
-        do j=js,je ; do I=is,ie
+        do j=js,je ; do i=is,ie
           ! With the additional parentheses this gives bitwise rotational symmetry.
           MEKE%Kh(i,j) = CS%MEKE_GEOMETRIC_alpha * MEKE%MEKE(i,j) / &
                          (0.25*((VarMix%SN_u(I,j)+VarMix%SN_u(I-1,j)) + &
@@ -463,33 +484,44 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
 
   if (CS%debug) then
     call uvchksum("Kh_[uv]", Kh_u, Kh_v, G%HI, haloshift=0, &
-                  scale=(US%L_to_m**2)*US%s_to_T, scalar_pair=.true.)
+                  unscale=(US%L_to_m**2)*US%s_to_T, scalar_pair=.true.)
     call uvchksum("Kh_[uv]_CFL", Kh_u_CFL, Kh_v_CFL, G%HI, haloshift=0, &
-                  scale=(US%L_to_m**2)*US%s_to_T, scalar_pair=.true.)
+                  unscale=(US%L_to_m**2)*US%s_to_T, scalar_pair=.true.)
     if (Resoln_scaled) then
       call uvchksum("Res_fn_[uv]", VarMix%Res_fn_u, VarMix%Res_fn_v, G%HI, haloshift=0, &
-                    scale=1.0, scalar_pair=.true.)
+                    unscale=1.0, scalar_pair=.true.)
     endif
     call uvchksum("int_slope_[uv]", int_slope_u, int_slope_v, G%HI, haloshift=0)
-    call hchksum(h, "thickness_diffuse_1 h", G%HI, haloshift=1, scale=GV%H_to_m)
-    call hchksum(e, "thickness_diffuse_1 e", G%HI, haloshift=1, scale=US%Z_to_m)
+    call hchksum(h, "thickness_diffuse_1 h", G%HI, haloshift=1, unscale=GV%H_to_m)
+    call hchksum(e, "thickness_diffuse_1 e", G%HI, haloshift=1, unscale=US%Z_to_m)
     if (use_stored_slopes) then
       call uvchksum("VarMix%slope_[xy]", VarMix%slope_x, VarMix%slope_y, &
-                    G%HI, haloshift=0, scale=US%Z_to_L)
+                    G%HI, haloshift=0, unscale=US%Z_to_L)
     endif
     if (associated(tv%eqn_of_state)) then
-      call hchksum(tv%T, "thickness_diffuse T", G%HI, haloshift=1, scale=US%C_to_degC)
-      call hchksum(tv%S, "thickness_diffuse S", G%HI, haloshift=1, scale=US%S_to_ppt)
+      call hchksum(tv%T, "thickness_diffuse T", G%HI, haloshift=1, unscale=US%C_to_degC)
+      call hchksum(tv%S, "thickness_diffuse S", G%HI, haloshift=1, unscale=US%S_to_ppt)
     endif
   endif
 
   ! Calculate uhD, vhD from h, e, KH_u, KH_v, tv%T/S
-  if (use_stored_slopes) then
-    call thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV, US, MEKE, CS, &
-                                int_slope_u, int_slope_v, VarMix%slope_x, VarMix%slope_y)
+  if (STOCH%skeb_use_gm) then
+    if (use_stored_slopes) then
+      call thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV, US, MEKE, CS, &
+                                  int_slope_u, int_slope_v, VarMix%slope_x, VarMix%slope_y, &
+                                  STOCH=STOCH, VarMix=VarMix)
+    else
+      call thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV, US, MEKE, CS, &
+                                  int_slope_u, int_slope_v, STOCH=STOCH, VarMix=VarMix)
+    endif
   else
-    call thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV, US, MEKE, CS, &
-                                int_slope_u, int_slope_v)
+    if (use_stored_slopes) then
+      call thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV, US, MEKE, CS, &
+                                  int_slope_u, int_slope_v, VarMix%slope_x, VarMix%slope_y)
+    else
+      call thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV, US, MEKE, CS, &
+                                  int_slope_u, int_slope_v)
+    endif
   endif
 
   if (VarMix%use_variable_mixing) then
@@ -535,8 +567,8 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
         enddo ; enddo
         ! diagnose diffusivity at T-points
         do j=js,je ; do i=is,ie
-          Kh_t(i,j,k) = ((hu(I-1,j)*KH_u_lay(i-1,j) + hu(I,j)*KH_u_lay(I,j)) + &
-                         (hv(i,J-1)*KH_v_lay(i,J-1) + hv(i,J)*KH_v_lay(i,J))) / &
+          Kh_t(i,j,k) = (((hu(I-1,j)*KH_u_lay(i-1,j)) + (hu(I,j)*KH_u_lay(I,j))) + &
+                         ((hv(i,J-1)*KH_v_lay(i,J-1)) + (hv(i,J)*KH_v_lay(i,J)))) / &
                         ((hu(I-1,j)+hu(I,j)) + (hv(i,J-1)+hv(i,J)) + 1.0e-20)
           ! Use this denominator instead if hu and hv are actual thicknesses rather than a 0/1 mask:
           !              ((hu(I-1,j)+hu(I,j)) + (hv(i,J-1)+hv(i,J)) + h_neglect)
@@ -588,10 +620,10 @@ subroutine thickness_diffuse(h, uhtr, vhtr, tv, dt, G, GV, US, MEKE, VarMix, CDp
 
   if (CS%debug) then
     call uvchksum("thickness_diffuse [uv]hD", uhD, vhD, &
-                  G%HI, haloshift=0, scale=GV%H_to_m*US%L_to_m**2*US%s_to_T)
+                  G%HI, haloshift=0, unscale=GV%H_to_m*US%L_to_m**2*US%s_to_T)
     call uvchksum("thickness_diffuse [uv]htr", uhtr, vhtr, &
-                  G%HI, haloshift=0, scale=US%L_to_m**2*GV%H_to_m)
-    call hchksum(h, "thickness_diffuse h", G%HI, haloshift=0, scale=GV%H_to_m)
+                  G%HI, haloshift=0, unscale=US%L_to_m**2*GV%H_to_m)
+    call hchksum(h, "thickness_diffuse h", G%HI, haloshift=0, unscale=GV%H_to_m)
   endif
 
 end subroutine thickness_diffuse
@@ -600,7 +632,7 @@ end subroutine thickness_diffuse
 !! Fluxes are limited to give positive definite thicknesses.
 !! Called by thickness_diffuse().
 subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV, US, MEKE, &
-                                  CS, int_slope_u, int_slope_v, slope_x, slope_y)
+                                  CS, int_slope_u, int_slope_v, slope_x, slope_y, STOCH, VarMix)
   type(ocean_grid_type),                        intent(in)  :: G     !< Ocean grid structure
   type(verticalGrid_type),                      intent(in)  :: GV    !< Vertical grid structure
   type(unit_scale_type),                        intent(in)  :: US    !< A dimensional unit scaling type
@@ -629,6 +661,8 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
                                                                      !! density gradients [nondim].
   real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)+1), optional, intent(in)  :: slope_x !< Isopyc. slope at u [Z L-1 ~> nondim]
   real, dimension(SZI_(G),SZJB_(G),SZK_(GV)+1), optional, intent(in)  :: slope_y !< Isopyc. slope at v [Z L-1 ~> nondim]
+  type(stochastic_CS),                       optional, intent(inout)  :: STOCH !< Stochastic control structure
+  type(VarMix_CS), target,                      optional, intent(in)  :: VarMix !< Variable mixing coefficents
 
   ! Local variables
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)) :: &
@@ -766,6 +800,10 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
                                                         ! [H L2 T-1 ~> m3 s-1 or kg s-1]
   real :: diag_sfn_unlim_y(SZI_(G),SZJB_(G),SZK_(GV)+1) ! Diagnostic of the y-face streamfunction before
                                                         ! applying limiters [Z L2 T-1 ~> m3 s-1]
+                                                        ! applying limiters [H L2 T-1 ~> m3 s-1 or kg s-1]
+  real, allocatable :: skeb_gm_work(:,:)                ! Temp array to hold GM work for SKEB
+  real, allocatable :: skeb_ebt_norm2(:,:)              ! Used to normalize EBT for SKEB
+
   logical :: present_slope_x, present_slope_y, calc_derivatives
   integer, dimension(2) :: EOSdom_u  ! The shifted I-computational domain to use for equation of
                                      ! state calculations at u-points.
@@ -773,7 +811,7 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
                                      ! state calculations at v-points.
   integer, dimension(2) :: EOSdom_h1 ! The shifted i-computational domain to use for equation of
                                      ! state calculations at h points with 1 extra halo point
-  logical :: use_stanley
+  logical :: use_stanley, skeb_use_gm
   integer :: is, ie, js, je, nz, IsdB, halo
   integer :: i, j, k
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = GV%ke ; IsdB = G%IsdB
@@ -792,6 +830,13 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
 
   use_stanley = CS%use_stanley_gm
 
+  skeb_use_gm = .false.
+  if (present(STOCH)) skeb_use_gm = STOCH%skeb_use_gm
+  if (skeb_use_gm) then
+    allocate(skeb_gm_work(is:ie,js:je), source=0.)
+    allocate(skeb_ebt_norm2(is:ie,js:je), source=0.)
+  endif
+
   nk_linear = max(GV%nkml, 1)
 
   Slope_x_PE(:,:,:) = 0.0
@@ -801,6 +846,7 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
 
   find_work = allocated(MEKE%GM_src)
   find_work = (allocated(CS%GMwork) .or. find_work)
+  find_work = (skeb_use_gm .or. find_work)
 
   if (use_EOS) then
     halo = 1 ! Default halo to fill is 1
@@ -916,9 +962,9 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
                    drho_dS_u(I) * (S(i,j,k)-S(i,j,k-1)))
           drdkR = (drho_dT_u(I) * (T(i+1,j,k)-T(i+1,j,k-1)) + &
                    drho_dS_u(I) * (S(i+1,j,k)-S(i+1,j,k-1)))
-          drdkDe_u(I,K) = drdkR * e(i+1,j,K) - drdkL * e(i,j,K)
+          drdkDe_u(I,K) = (drdkR * e(i+1,j,K)) - (drdkL * e(i,j,K))
         elseif (find_work) then ! This is used in pure stacked SW mode
-          drdkDe_u(I,K) = drdkR * e(i+1,j,K) - drdkL * e(i,j,K)
+          drdkDe_u(I,K) = (drdkR * e(i+1,j,K)) - (drdkL * e(i,j,K))
         endif
         if (use_stanley) then
           ! Correction to the horizontal density gradient due to nonlinearity in
@@ -950,7 +996,7 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
               ! These unnormalized weights have been rearranged to minimize divisions.
               wtL = hg2L*(haR*dzaR) ; wtR = hg2R*(haL*dzaL)
 
-              drdz = (wtL * drdkL + wtR * drdkR) / (dzaL*wtL + dzaR*wtR)
+              drdz = ((wtL * drdkL) + (wtR * drdkR)) / ((dzaL*wtL) + (dzaR*wtR))
               ! The expression for drdz above is mathematically equivalent to:
               !   drdz = ((hg2L/haL) * drdkL/dzaL + (hg2R/haR) * drdkR/dzaR) / &
               !          ((hg2L/haL) + (hg2R/haR))
@@ -963,7 +1009,7 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
                 N2_unlim = drdz*G_rho0
               else
                 N2_unlim = (GV%g_Earth*GV%RZ_to_H) * &
-                           ((wtL * drdkL + wtR * drdkR) / (haL*wtL + haR*wtR))
+                           (((wtL * drdkL) + (wtR * drdkR)) / ((haL*wtL) + (haR*wtR)))
               endif
 
               dzg2A = dz(i,j,k-1)*dz(i+1,j,k-1) + dz_neglect2
@@ -1082,10 +1128,10 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
 
         if (allocated(tv%SpV_avg) .and. (find_work .or. (k > nk_linear)) ) then
           Rho_avg = ( ((h(i,j,k) + h(i,j,k-1)) + (h(i+1,j,k) + h(i+1,j,k-1))) + 4.0*hn_2 ) / &
-                ( ((h(i,j,k)+hn_2) * tv%SpV_avg(i,j,k)   + (h(i,j,k-1)+hn_2) * tv%SpV_avg(i,j,k-1)) + &
-                  ((h(i+1,j,k)+hn_2)*tv%SpV_avg(i+1,j,k) + (h(i+1,j,k-1)+hn_2)*tv%SpV_avg(i+1,j,k-1)) )
+                ( (((h(i,j,k)+hn_2) * tv%SpV_avg(i,j,k))   + ((h(i,j,k-1)+hn_2) * tv%SpV_avg(i,j,k-1))) + &
+                  (((h(i+1,j,k)+hn_2)*tv%SpV_avg(i+1,j,k)) + ((h(i+1,j,k-1)+hn_2)*tv%SpV_avg(i+1,j,k-1))) )
           ! Use an average density to convert the volume streamfunction estimate into a mass streamfunction.
-          Z_to_H = (GV%RZ_to_H*Rho_avg)
+          Z_to_H = GV%RZ_to_H*Rho_avg
         else
           Z_to_H = GV%Z_to_H
         endif
@@ -1235,9 +1281,9 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
                    drho_dS_v(i) * (S(i,j,k)-S(i,j,k-1)))
           drdkR = (drho_dT_v(i) * (T(i,j+1,k)-T(i,j+1,k-1)) + &
                    drho_dS_v(i) * (S(i,j+1,k)-S(i,j+1,k-1)))
-          drdkDe_v(i,K) =  drdkR * e(i,j+1,K) - drdkL * e(i,j,K)
+          drdkDe_v(i,K) =  (drdkR * e(i,j+1,K)) - (drdkL * e(i,j,K))
         elseif (find_work) then ! This is used in pure stacked SW mode
-          drdkDe_v(i,K) =  drdkR * e(i,j+1,K) - drdkL * e(i,j,K)
+          drdkDe_v(i,K) =  (drdkR * e(i,j+1,K)) - (drdkL * e(i,j,K))
         endif
         if (use_stanley) then
           ! Correction to the horizontal density gradient due to nonlinearity in
@@ -1271,7 +1317,7 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
               ! These unnormalized weights have been rearranged to minimize divisions.
               wtL = hg2L*(haR*dzaR) ; wtR = hg2R*(haL*dzaL)
 
-              drdz = (wtL * drdkL + wtR * drdkR) / (dzaL*wtL + dzaR*wtR)
+              drdz = ((wtL * drdkL) + (wtR * drdkR)) / ((dzaL*wtL) + (dzaR*wtR))
               ! The expression for drdz above is mathematically equivalent to:
               !   drdz = ((hg2L/haL) * drdkL/dzaL + (hg2R/haR) * drdkR/dzaR) / &
               !          ((hg2L/haL) + (hg2R/haR))
@@ -1284,7 +1330,7 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
                 N2_unlim = drdz*G_rho0
               else
                 N2_unlim = (GV%g_Earth*GV%RZ_to_H) * &
-                           ((wtL * drdkL + wtR * drdkR) / (haL*wtL + haR*wtR))
+                           (((wtL * drdkL) + (wtR * drdkR)) / ((haL*wtL) + (haR*wtR)))
               endif
 
               dzg2A = dz(i,j,k-1)*dz(i,j+1,k-1) + dz_neglect2
@@ -1401,10 +1447,10 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
       do i=is,ie
         if (allocated(tv%SpV_avg) .and. (find_work .or. (k > nk_linear)) ) then
           Rho_avg = ( ((h(i,j,k) + h(i,j,k-1)) + (h(i,j+1,k) + h(i,j+1,k-1))) + 4.0*hn_2 ) / &
-              ( ((h(i,j,k)+hn_2) * tv%SpV_avg(i,j,k)   + (h(i,j,k-1)+hn_2) * tv%SpV_avg(i,j,k-1)) + &
-                ((h(i,j+1,k)+hn_2)*tv%SpV_avg(i,j+1,k) + (h(i,j+1,k-1)+hn_2)*tv%SpV_avg(i,j+1,k-1)) )
+              ( (((h(i,j,k)+hn_2) * tv%SpV_avg(i,j,k))   + ((h(i,j,k-1)+hn_2) * tv%SpV_avg(i,j,k-1))) + &
+                (((h(i,j+1,k)+hn_2)*tv%SpV_avg(i,j+1,k)) + ((h(i,j+1,k-1)+hn_2)*tv%SpV_avg(i,j+1,k-1))) )
           ! Use an average density to convert the volume streamfunction estimate into a mass streamfunction.
-          Z_to_H = (GV%RZ_to_H*Rho_avg)
+          Z_to_H = GV%RZ_to_H*Rho_avg
         else
           Z_to_H = GV%Z_to_H
         endif
@@ -1510,7 +1556,7 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
                   drho_dS_u(I) * (S(i+1,j,1)-S(i,j,1))
           if (allocated(tv%SpV_avg)) then
             G_scale = GV%H_to_RZ * GV%g_Earth * &
-                ( ((h(i,j,1)+hn_2) * tv%SpV_avg(i,j,1) + (h(i+1,j,1)+hn_2) * tv%SpV_avg(i+1,j,1)) / &
+                ( ( ((h(i,j,1)+hn_2) * tv%SpV_avg(i,j,1)) + ((h(i+1,j,1)+hn_2) * tv%SpV_avg(i+1,j,1)) ) / &
                   ( (h(i,j,1) + h(i+1,j,1)) + 2.0*hn_2 ) )
           endif
         endif
@@ -1547,7 +1593,7 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
                   drho_dS_v(i) * (S(i,j+1,1)-S(i,j,1))
           if (allocated(tv%SpV_avg)) then
             G_scale = GV%H_to_RZ * GV%g_Earth * &
-                ( ((h(i,j,1)+hn_2) * tv%SpV_avg(i,j,1) + (h(i,j+1,1)+hn_2) * tv%SpV_avg(i,j+1,1)) / &
+                ( ( ((h(i,j,1)+hn_2) * tv%SpV_avg(i,j,1)) + ((h(i,j+1,1)+hn_2) * tv%SpV_avg(i,j+1,1)) ) / &
                   ( (h(i,j,1) + h(i,j+1,1)) + 2.0*hn_2 ) )
           endif
         endif
@@ -1566,34 +1612,52 @@ subroutine thickness_diffuse_full(h, e, Kh_u, Kh_v, tv, uhD, vhD, cg1, dt, G, GV
     if (.not. CS%GM_src_alt) then ; if (allocated(MEKE%GM_src)) then
       MEKE%GM_src(i,j) = MEKE%GM_src(i,j) + Work_h
     endif ; endif
+    if (skeb_use_gm) then
+      skeb_gm_work(i,j)   = STOCH%skeb_gm_coef * Work_h
+      skeb_ebt_norm2(i,j) = 0.0
+      do k=1,nz
+        skeb_ebt_norm2(i,j) = skeb_ebt_norm2(i,j) + h(i,j,k) * VarMix%ebt_struct(i,j,k)**2
+      enddo
+      skeb_ebt_norm2(i,j) = GV%H_to_RZ * (skeb_ebt_norm2(i,j) + h_neglect)
+    endif
   enddo ; enddo ; endif
+
+  if (skeb_use_gm) then
+    ! This block spreads the GM work down through the column using the ebt vertical structure, squared.
+    ! Note the sign convention.
+    do k=1,nz ; do j=js,je ; do i=is,ie
+      STOCH%skeb_diss(i,j,k) = STOCH%skeb_diss(i,j,k) - skeb_gm_work(i,j) * &
+                               VarMix%ebt_struct(i,j,k)**2 / skeb_ebt_norm2(i,j)
+    enddo ; enddo ; enddo
+  endif
 
   if (find_work .and. CS%GM_src_alt) then ; if (allocated(MEKE%GM_src)) then
     if (CS%MEKE_src_answer_date >= 20240601) then
       do j=js,je ; do i=is,ie ; do k=nz,1,-1
         PE_release_h = -0.25 * GV%H_to_RZ * &
-                         ( (KH_u(I,j,k)*(Slope_x_PE(I,j,k)**2) * hN2_x_PE(I,j,k) + &
-                            Kh_u(I-1,j,k)*(Slope_x_PE(I-1,j,k)**2) * hN2_x_PE(I-1,j,k)) + &
-                           (Kh_v(i,J,k)*(Slope_y_PE(i,J,k)**2) * hN2_y_PE(i,J,k) + &
-                            Kh_v(i,J-1,k)*(Slope_y_PE(i,J-1,k)**2) * hN2_y_PE(i,J-1,k)) )
+                         ( ((KH_u(I,j,k)*(Slope_x_PE(I,j,k)**2) * hN2_x_PE(I,j,k)) + &
+                            (Kh_u(I-1,j,k)*(Slope_x_PE(I-1,j,k)**2) * hN2_x_PE(I-1,j,k))) + &
+                           ((Kh_v(i,J,k)*(Slope_y_PE(i,J,k)**2) * hN2_y_PE(i,J,k)) + &
+                            (Kh_v(i,J-1,k)*(Slope_y_PE(i,J-1,k)**2) * hN2_y_PE(i,J-1,k))) )
         MEKE%GM_src(i,j) = MEKE%GM_src(i,j) + PE_release_h
       enddo ; enddo ; enddo
     else
       do j=js,je ; do i=is,ie ; do k=nz,1,-1
         PE_release_h = -0.25 * GV%H_to_RZ * &
-                           (KH_u(I,j,k)*(Slope_x_PE(I,j,k)**2) * hN2_x_PE(I,j,k) + &
-                            Kh_u(I-1,j,k)*(Slope_x_PE(I-1,j,k)**2) * hN2_x_PE(I-1,j,k) + &
-                            Kh_v(i,J,k)*(Slope_y_PE(i,J,k)**2) * hN2_y_PE(i,J,k) + &
-                            Kh_v(i,J-1,k)*(Slope_y_PE(i,J-1,k)**2) * hN2_y_PE(i,J-1,k))
+                           ((KH_u(I,j,k)*(Slope_x_PE(I,j,k)**2) * hN2_x_PE(I,j,k)) + &
+                            (Kh_u(I-1,j,k)*(Slope_x_PE(I-1,j,k)**2) * hN2_x_PE(I-1,j,k)) + &
+                            (Kh_v(i,J,k)*(Slope_y_PE(i,J,k)**2) * hN2_y_PE(i,J,k)) + &
+                            (Kh_v(i,J-1,k)*(Slope_y_PE(i,J-1,k)**2) * hN2_y_PE(i,J-1,k)))
         MEKE%GM_src(i,j) = MEKE%GM_src(i,j) + PE_release_h
       enddo ; enddo ; enddo
     endif
+
     if (CS%debug) then
-      call hchksum(MEKE%GM_src, 'MEKE%GM_src', G%HI, scale=US%RZ3_T3_to_W_m2*US%L_to_Z**2)
-      call uvchksum("KH_[uv]", Kh_u, Kh_v, G%HI, scale=US%L_to_m**2*US%s_to_T, &
+      call hchksum(MEKE%GM_src, 'MEKE%GM_src', G%HI, unscale=US%RZ3_T3_to_W_m2*US%L_to_Z**2)
+      call uvchksum("KH_[uv]", Kh_u, Kh_v, G%HI, unscale=US%L_to_m**2*US%s_to_T, &
                     scalar_pair=.true.)
-      call uvchksum("Slope_[xy]_PE", Slope_x_PE, Slope_y_PE, G%HI, scale=US%Z_to_L)
-      call uvchksum("hN2_[xy]_PE", hN2_x_PE, hN2_y_PE, G%HI, scale=GV%H_to_mks*US%L_to_Z**2*US%s_to_T**2, &
+      call uvchksum("Slope_[xy]_PE", Slope_x_PE, Slope_y_PE, G%HI, unscale=US%Z_to_L)
+      call uvchksum("hN2_[xy]_PE", hN2_x_PE, hN2_y_PE, G%HI, unscale=GV%H_to_mks*US%L_to_Z**2*US%s_to_T**2, &
                     scalar_pair=.true.)
     endif
   endif ; endif
@@ -2126,7 +2190,12 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
                        ! rotation [nondim].
   real :: Stanley_coeff ! Coefficient relating the temperature gradient and sub-gridscale
                         ! temperature variance [nondim]
-  integer :: default_answer_date  ! The default setting for the various ANSWER_DATE flags.
+  logical :: khth_use_ebt_struct ! If true, uses the equivalent barotropic structure
+                                 ! as the vertical structure of thickness diffusivity.
+                                 ! Used to determine if FULL_DEPTH_KHTH_MIN should be
+                                 ! available.
+  logical :: use_meke = .false. ! If true, use the MEKE formulation for the thickness diffusivity.
+  integer :: default_answer_date ! The default setting for the various ANSWER_DATE flags.
   integer :: i, j
 
   CS%initialized = .true.
@@ -2172,6 +2241,17 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
   call get_param(param_file, mdl, "KHTH_MIN", CS%KHTH_Min, &
                  "The minimum horizontal thickness diffusivity.", &
                  default=0.0, units="m2 s-1", scale=US%m_to_L**2*US%T_to_s)
+  call get_param(param_file, mdl, "KHTH_USE_EBT_STRUCT", khth_use_ebt_struct, &
+                 "If true, uses the equivalent barotropic structure "//&
+                 "as the vertical structure of thickness diffusivity.",&
+                 default=.false., do_not_log=.true.)
+  if (khth_use_ebt_struct .and. CS%KHTH_Min>0.0) then
+    call get_param(param_file, mdl, "FULL_DEPTH_KHTH_MIN", CS%full_depth_khth_min, &
+                   "If true, KHTH_MIN is enforced throughout the whole water column. "//&
+                   "Otherwise, KHTH_MIN is only enforced at the surface. This parameter "//&
+                   "is only available when KHTH_USE_EBT_STRUCT=True and KHTH_MIN>0.",      &
+                   default=.false.)
+  endif
   call get_param(param_file, mdl, "KHTH_MAX", CS%KHTH_Max, &
                  "The maximum horizontal thickness diffusivity.", &
                  default=0.0, units="m2 s-1", scale=US%m_to_L**2*US%T_to_s)
@@ -2198,11 +2278,11 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
     allocate(CS%Kh_eta_u(G%IsdB:G%IedB, G%jsd:G%jed), source=0.)
     allocate(CS%Kh_eta_v(G%isd:G%ied, G%JsdB:G%JedB), source=0.)
     do j=G%jsc,G%jec ; do I=G%isc-1,G%iec
-      grid_sp = sqrt((2.0*G%dxCu(I,j)**2 * G%dyCu(I,j)**2) / (G%dxCu(I,j)**2 + G%dyCu(I,j)**2))
+      grid_sp = sqrt((2.0*G%dxCu(I,j)**2 * G%dyCu(I,j)**2) / ((G%dxCu(I,j)**2) + (G%dyCu(I,j)**2)))
       CS%Kh_eta_u(I,j) = G%OBCmaskCu(I,j) * MAX(0.0, CS%Kh_eta_bg + CS%Kh_eta_vel * grid_sp)
     enddo ; enddo
     do J=G%jsc-1,G%jec ; do i=G%isc,G%iec
-      grid_sp = sqrt((2.0*G%dxCv(i,J)**2 * G%dyCv(i,J)**2) / (G%dxCv(i,J)**2 + G%dyCv(i,J)**2))
+      grid_sp = sqrt((2.0*G%dxCv(i,J)**2 * G%dyCv(i,J)**2) / ((G%dxCv(i,J)**2) + (G%dyCv(i,J)**2)))
       CS%Kh_eta_v(i,J) = G%OBCmaskCv(i,J) * MAX(0.0, CS%Kh_eta_bg + CS%Kh_eta_vel * grid_sp)
     enddo ; enddo
   endif
@@ -2300,13 +2380,16 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
     if (.not.GV%Boussinesq) CS%MEKE_GEOM_answer_date = max(CS%MEKE_GEOM_answer_date, 20230701)
   endif
 
-  call get_param(param_file, mdl, "USE_KH_IN_MEKE", CS%Use_KH_in_MEKE, &
-                 "If true, uses the thickness diffusivity calculated here to diffuse MEKE.", &
-                 default=.false.)
-  call get_param(param_file, mdl, "MEKE_MIN_DEPTH_DIFF", CS%MEKE_min_depth_diff, &
-                 "The minimum total depth over which to average the diffusivity used for MEKE.  "//&
-                 "When the total depth is less than this, the diffusivity is scaled away.", &
-                 units="m", default=1.0, scale=GV%m_to_H, do_not_log=.not.CS%Use_KH_in_MEKE)
+  call get_param(param_file, mdl, "USE_MEKE", use_meke, default=.false., do_not_log=.true.)
+  if (use_meke) then
+    call get_param(param_file, mdl, "USE_KH_IN_MEKE", CS%Use_KH_in_MEKE, &
+                   "If true, uses the thickness diffusivity calculated here to diffuse MEKE.", &
+                   default=.false.)
+    call get_param(param_file, mdl, "MEKE_MIN_DEPTH_DIFF", CS%MEKE_min_depth_diff, &
+                   "The minimum total depth over which to average the diffusivity used for MEKE.  "//&
+                   "When the total depth is less than this, the diffusivity is scaled away.", &
+                   units="m", default=1.0, scale=GV%m_to_H, do_not_log=.not.CS%Use_KH_in_MEKE)
+  endif
 
   call get_param(param_file, mdl, "USE_GME", CS%use_GME_thickness_diffuse, &
                  "If true, use the GM+E backscatter scheme in association "//&
@@ -2460,7 +2543,7 @@ end subroutine thickness_diffuse_end
 !! since the quantity \f$\frac{M^2}{\sqrt{N^4 + M^4}}\f$ is bounded between $-1$ and $1$ and does not change sign
 !! if \f$N^2<0\f$.
 !!
-!! Optionally, the method of Ferrari et al, 2010, can be used to obtain the streamfunction which solves the
+!! Optionally, the method of \cite ferrari2010, can be used to obtain the streamfunction which solves the
 !! vertically elliptic equation:
 !! \f[
 !! \gamma_F \partial_z c^2 \partial_z \psi - N_*^2 \psi  = -( 1 + \gamma_F ) \kappa_h N_*^2 \frac{M^2}{\sqrt{N^4+M^4}}
@@ -2478,7 +2561,7 @@ end subroutine thickness_diffuse_end
 !! \f$ r(\Delta x,L_d) \f$ is a function of the local resolution (ratio of grid-spacing, \f$\Delta x\f$,
 !! to deformation radius, \f$L_d\f$). The length \f$L_s\f$ is provided by the mom_lateral_mixing_coeffs module
 !! (enabled with <code>USE_VARIABLE_MIXING=True</code> and the term \f$<SN>\f$ is the vertical average slope
-!! times the buoyancy frequency prescribed by Visbeck et al., 1996.
+!! times the buoyancy frequency prescribed by \cite visbeck1996.
 !!
 !! The result of the above expression is subsequently bounded by minimum and maximum values, including an upper
 !! diffusivity consistent with numerical stability (\f$ \kappa_{cfl} \f$ is calculated internally).

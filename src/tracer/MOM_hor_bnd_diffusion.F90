@@ -151,12 +151,14 @@ logical function hor_bnd_diffusion_init(Time, G, GV, US, param_file, diag, diaba
   ! GMM, TODO: add HBD params to control optional arguments in initialize_remapping.
   call initialize_remapping( CS%remap_CS, string, boundary_extrapolation=boundary_extrap, &
                              om4_remap_via_sub_cells=om4_remap_via_sub_cells, &
-                             check_reconstruction=.false., check_remapping=.false.)
+                             check_reconstruction=.false., check_remapping=.false., &
+                             h_neglect=CS%H_subroundoff, h_neglect_edge=CS%H_subroundoff)
   call extract_member_remapping_CS(CS%remap_CS, degree=CS%deg)
-  call get_param(param_file, mdl, "DEBUG", debug, default=.false., do_not_log=.true.)
+  call get_param(param_file, mdl, "DEBUG", debug, &
+                 default=.false., debuggingParam=.true., do_not_log=.true.)
   call get_param(param_file, mdl, "HBD_DEBUG", CS%debug, &
                  "If true, write out verbose debugging data in the HBD module.", &
-                 default=debug)
+                 default=debug, debuggingParam=.true.)
 
   id_clock_hbd = cpu_clock_id('(Ocean HBD)', grain=CLOCK_MODULE)
 
@@ -229,7 +231,7 @@ subroutine hor_bnd_diffusion(G, GV, US, h, Coef_x, Coef_y, dt, Reg, visc, CS)
     tracer => Reg%tr(m)
 
     if (CS%debug) then
-      call hchksum(tracer%t, "before HBD "//tracer%name,G%HI)
+      call hchksum(tracer%t, "before HBD "//tracer%name, G%HI, scale=tracer%conc_scale)
     endif
 
     ! for diagnostics
@@ -285,10 +287,10 @@ subroutine hor_bnd_diffusion(G, GV, US, h, Coef_x, Coef_y, dt, Reg, visc, CS)
     endif
 
     if (CS%debug) then
-      call hchksum(tracer%t, "after HBD "//tracer%name,G%HI)
+      call hchksum(tracer%t, "after HBD "//tracer%name, G%HI, scale=tracer%conc_scale)
       ! tracer (native grid) integrated tracer amounts before and after HBD
-      tracer_int_prev = global_mass_integral(h, G, GV, tracer_old)
-      tracer_int_end = global_mass_integral(h, G, GV, tracer%t)
+      tracer_int_prev = global_mass_integral(h, G, GV, tracer_old, scale=tracer%conc_scale)
+      tracer_int_end = global_mass_integral(h, G, GV, tracer%t, scale=tracer%conc_scale)
       write(mesg,*) 'Total '//tracer%name//' before/after HBD:', tracer_int_prev, tracer_int_end
       call MOM_mesg(mesg)
     endif
@@ -442,7 +444,7 @@ integer function  find_minimum(x, s, e)
     if (x(i) < minimum) then !   if x(i) less than the min?
       minimum  = x(i)   !      Yes, a new minimum found
       location = i                !      record its position
-    end if
+    endif
   enddo
   find_minimum = location          ! return the position
 end function  find_minimum
@@ -739,10 +741,8 @@ subroutine fluxes_layer_method(boundary, ke, hbl_L, hbl_R, h_L, h_R, phi_L, phi_
   allocate(khtr_ul_z(nk), source=0.0)
 
   ! remap tracer to dz_top
-  call remapping_core_h(CS%remap_cs, ke, h_L(:), phi_L(:), nk, dz_top(:), phi_L_z(:), &
-                        CS%H_subroundoff, CS%H_subroundoff)
-  call remapping_core_h(CS%remap_cs, ke, h_R(:), phi_R(:), nk, dz_top(:), phi_R_z(:), &
-                        CS%H_subroundoff, CS%H_subroundoff)
+  call remapping_core_h(CS%remap_cs, ke, h_L(:), phi_L(:), nk, dz_top(:), phi_L_z(:))
+  call remapping_core_h(CS%remap_cs, ke, h_R(:), phi_R(:), nk, dz_top(:), phi_R_z(:))
 
   ! thicknesses at velocity points & khtr_u at layer centers
   do k = 1,ke
@@ -753,8 +753,7 @@ subroutine fluxes_layer_method(boundary, ke, hbl_L, hbl_R, h_L, h_R, phi_L, phi_
   enddo
 
   ! remap khtr_ul to khtr_ul_z
-  call remapping_core_h(CS%remap_cs, ke, h_vel(:), khtr_ul(:), nk, dz_top(:), khtr_ul_z(:), &
-                        CS%H_subroundoff, CS%H_subroundoff)
+  call remapping_core_h(CS%remap_cs, ke, h_vel(:), khtr_ul(:), nk, dz_top(:), khtr_ul_z(:))
 
   ! Calculate vertical indices containing the boundary layer in dz_top
   call boundary_k_range(boundary, nk, dz_top, hbl_L, k_top_L, zeta_top_L, k_bot_L, zeta_bot_L)
@@ -855,15 +854,16 @@ logical function near_boundary_unit_tests( verbose )
   allocate(CS)
   ! fill required fields in CS
   CS%linear=.false.
-  call initialize_remapping( CS%remap_CS, 'PLM', boundary_extrapolation=.true., &
-                             om4_remap_via_sub_cells=.true., & ! ### see fail below when using fixed remapping alg.
-                             check_reconstruction=.true., check_remapping=.true.)
-  call extract_member_remapping_CS(CS%remap_CS, degree=CS%deg)
   CS%H_subroundoff = 1.0E-20
   CS%debug=.false.
   CS%limiter=.false.
   CS%limiter_remap=.false.
   CS%hbd_nk = 2 + (2*2)
+  call initialize_remapping( CS%remap_CS, 'PLM', boundary_extrapolation=.true., &
+                             om4_remap_via_sub_cells=.true., & ! ### see fail below when using fixed remapping alg.
+                             check_reconstruction=.true., check_remapping=.true., &
+                             h_neglect=CS%H_subroundoff, h_neglect_edge=CS%H_subroundoff)
+  call extract_member_remapping_CS(CS%remap_CS, degree=CS%deg)
   allocate(CS%hbd_grd_u(1,1,CS%hbd_nk), source=0.0)
   allocate(CS%hbd_u_kmax(1,1), source=0)
   near_boundary_unit_tests = .false.
@@ -1239,7 +1239,7 @@ end subroutine hor_bnd_diffusion_end
 !!
 !! \subsection section_harmonic_mean Harmonic Mean
 !!
-!! The harmonic mean (HM) betwen h1 and h2 is defined as:
+!! The harmonic mean (HM) between h1 and h2 is defined as:
 !!
 !! \f[ HM = \frac{2 \times h1 \times h2}{h1 + h2} \f]
 !!
