@@ -384,6 +384,8 @@ type, public :: MOM_control_struct ; private
 
   logical :: accumulate_resolved_flux = .false. !< If true, accumulate resolved flux for tracers for diagnostics
                                                 !! separating the tracer flux due to resolved and parameterized flow
+  logical :: do_resolved_advection = .false.    !< If true, calculate advection by resolved flow
+  logical :: do_param_advection = .false.       !< If true, calculate advection by parameterized flow
   real ALLOCABLE_, dimension(NIMEMB_PTR_,NJMEM_,NKMEM_) :: &
     uhtr_resolved   !< accumulated zonal thickness fluxes due to resolved flow to advect tracers [H L2 ~> m3 or kg]
   real ALLOCABLE_, dimension(NIMEM_,NJMEMB_PTR_,NKMEM_) :: &
@@ -1444,8 +1446,6 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
     uhtr_tmp             ! Temp. variable for advecting with alternate volume fluxes [H L2 ~> m3 or kg]
   real, dimension(SZI_(G),SZJB_(G),SZK_(GV)) :: &
     vhtr_tmp             ! Temp. variable for advecting with alternate volume fluxes[H L2 ~> m3 or kg]
-  logical :: do_resolved_advection ! do advection with resolved flow
-  logical :: do_param_advection ! do advection with parameterized flow
   integer :: i, j, k, m, is, ie, js, je, Isq, Ieq, Jsq, Jeq, nz
   integer :: IsdB, IedB, JsdB, JedB
   logical :: showCallTree
@@ -1485,24 +1485,12 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
   call advect_tracer(h, CS%uhtr, CS%vhtr, CS%OBC, CS%t_dyn_rel_adv, G, GV, US, &
                      CS%tracer_adv_CSp, CS%tracer_Reg, x_first_in=x_first, flux_type=0)
 
-  ! Check to see if there are any diagnostics for separate tracer fluxes due to resolved flow
-  do_resolved_advection = .false.
-  do m=1,CS%tracer_Reg%ntr
-      if (associated(CS%tracer_Reg%Tr(m)%ad_x_resolved) .or. &
-          associated(CS%tracer_Reg%Tr(m)%ad_y_resolved)) do_resolved_advection = .true.
-  enddo
-  if (do_resolved_advection) then
+  if (CS%do_resolved_advection) then
     call advect_tracer(h, CS%uhtr_resolved, CS%vhtr_resolved, CS%OBC, CS%t_dyn_rel_adv, G, GV, US, &
                        CS%tracer_adv_CSp, CS%tracer_Reg, x_first_in=x_first, flux_type=1)
   endif
 
-  ! Check to see if there are any diagnostics for separate tracer fluxes due to parameterized flow
-  do_param_advection = .false.
-  do m=1,CS%tracer_Reg%ntr
-      if (associated(CS%tracer_Reg%Tr(m)%ad_x_param) .or. &
-          associated(CS%tracer_Reg%Tr(m)%ad_y_param)) do_param_advection = .true.
-  enddo
-  if (do_param_advection) then
+  if (CS%do_param_advection) then
     !$OMP parallel do default(shared)
     do k=1,nz
       do j=js-2,je+2 ; do I=Isq-2,Ieq+2
@@ -3483,9 +3471,15 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
   ! determine if we need to accumulate resolved transports for tracer advection diagnostics
   do m = 1,CS%tracer_Reg%ntr
     if (CS%tracer_Reg%Tr(m)%id_adx_resolved > 0 .or. &
-        CS%tracer_Reg%Tr(m)%id_ady_resolved > 0 .or. &
-        CS%tracer_Reg%Tr(m)%id_adx_param    > 0 .or. &
-        CS%tracer_Reg%Tr(m)%id_ady_param    > 0) CS%accumulate_resolved_flux = .true.
+        CS%tracer_Reg%Tr(m)%id_ady_resolved > 0) then
+      CS%accumulate_resolved_flux = .true.
+      CS%do_resolved_advection = .true.
+    endif
+    if (CS%tracer_Reg%Tr(m)%id_adx_param    > 0 .or. &
+        CS%tracer_Reg%Tr(m)%id_ady_param    > 0) then
+      CS%accumulate_resolved_flux = .true.
+      CS%do_param_advection = .true.
+    endif
   enddo
   if (CS%accumulate_resolved_flux) then
     ALLOC_(CS%uhtr_resolved(IsdB:IedB,jsd:jed,nz)) ; CS%uhtr_resolved(:,:,:) = 0.0
