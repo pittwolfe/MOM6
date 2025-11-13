@@ -323,6 +323,7 @@ subroutine horiz_interp_and_extrap_tracer_record(filename, varnam,  conversion, 
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
   isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
   isg = G%isg ; ieg = G%ieg ; jsg = G%jsg ; jeg = G%jeg
+  call callTree_enter("horiz_interp_and_extrap_tracer_record(), MOM_horizontal_regridding.F90")
 
   id_clock_read = cpu_clock_id('(Initialize tracer from Z) read', grain=CLOCK_LOOP)
 
@@ -606,6 +607,7 @@ subroutine horiz_interp_and_extrap_tracer_record(filename, varnam,  conversion, 
     endif
 
   enddo ! kd
+  call callTree_leave('horiz_interp_and_extrap_tracer_record()')
 
 end subroutine horiz_interp_and_extrap_tracer_record
 
@@ -678,6 +680,8 @@ subroutine horiz_interp_and_extrap_tracer_fms_id(fms_id,  Time, conversion, G, t
   real, dimension(SZI_(G),SZJ_(G)) :: fill2   ! 1 for points that still need to be filled after Ice-9
   integer :: turns
 
+  call callTree_enter("horiz_interp_and_extrap_tracer_fms_id(), MOM_horizontal_regridding.F90")
+  
   turns = G%HI%turns
 
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
@@ -898,6 +902,7 @@ subroutine horiz_interp_and_extrap_tracer_fms_id(fms_id,  Time, conversion, G, t
         enddo
       enddo
   endif
+  call callTree_leave('horiz_interp_and_extrap_tracer_fms_id()')
 
 end subroutine horiz_interp_and_extrap_tracer_fms_id
 

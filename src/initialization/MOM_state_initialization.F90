@@ -2204,43 +2204,43 @@ subroutine MOM_temp_salt_initialize_from_Z(h, tv, G, GV, US, PF, just_read_param
                  "The name of the z-space input file used to initialize "//&
                  "temperatures (T) and salinities (S). If T and S are not "//&
                  "in the same file, TEMP_Z_INIT_FILE and SALT_Z_INIT_FILE "//&
-                 "must be set.", default="temp_salt_z.nc", do_not_log=just_read)
+                 "must be set.", default="temp_salt_z.nc")
   call get_param(PF, mdl, "TEMP_Z_INIT_FILE", tfilename, &
                  "The name of the z-space input file used to initialize "//&
-                 "temperatures, only.", default=trim(filename), do_not_log=just_read)
+                 "temperatures, only.", default=trim(filename))
   call get_param(PF, mdl, "SALT_Z_INIT_FILE", sfilename, &
                  "The name of the z-space input file used to initialize "//&
-                 "temperatures, only.", default=trim(filename), do_not_log=just_read)
+                 "temperatures, only.", default=trim(filename))
   filename = trim(inputdir)//trim(filename)
   tfilename = trim(inputdir)//trim(tfilename)
   sfilename = trim(inputdir)//trim(sfilename)
   call get_param(PF, mdl, "Z_INIT_FILE_PTEMP_VAR", potemp_var, &
                  "The name of the potential temperature variable in "//&
-                 "TEMP_Z_INIT_FILE.", default="ptemp", do_not_log=just_read)
+                 "TEMP_Z_INIT_FILE.", default="ptemp")
   call get_param(PF, mdl, "Z_INIT_FILE_SALT_VAR", salin_var, &
                  "The name of the salinity variable in "//&
-                 "SALT_Z_INIT_FILE.", default="salt", do_not_log=just_read)
+                 "SALT_Z_INIT_FILE.", default="salt")
   call get_param(PF, mdl, "Z_INIT_HOMOGENIZE", homogenize, &
                  "If True, then horizontally homogenize the interpolated "//&
-                 "initial conditions.", default=.false., do_not_log=just_read)
+                 "initial conditions.", default=.false.)
   call get_param(PF, mdl, "Z_INIT_ALE_REMAPPING", useALEremapping, &
                  "If True, then remap straight to model coordinate from file.", &
-                 default=.false., do_not_log=just_read)
+                 default=.false.)
   call get_param(PF, mdl, "Z_INIT_REMAPPING_SCHEME", remappingScheme, &
                  "The remapping scheme to use if using Z_INIT_ALE_REMAPPING "//&
-                 "is True.", default="PPM_IH4", do_not_log=just_read)
+                 "is True.", default="PPM_IH4")
   call get_param(PF, mdl, "Z_INIT_REMAP_GENERAL", remap_general, &
                  "If false, only initializes to z* coordinates. "//&
                  "If true, allows initialization directly to general coordinates.",&
-                 default=.false., do_not_log=just_read)
+                 default=.false.)
   call get_param(PF, mdl, "Z_INIT_REMAP_FULL_COLUMN", remap_full_column, &
                  "If false, only reconstructs profiles for valid data points. "//&
                  "If true, inserts vanished layers below the valid data.", &
-                 default=remap_general, do_not_log=just_read)
+                 default=remap_general)
   call get_param(PF, mdl, "Z_INIT_REMAP_OLD_ALG", remap_old_alg, &
                  "If false, uses the preferred remapping algorithm for initialization. "//&
                  "If true, use an older, less robust algorithm for remapping.", &
-                 default=.false., do_not_log=just_read)
+                 default=.false.)
   call get_param(PF, mdl, "DEFAULT_2018_ANSWERS", default_2018_answers, &
                  "This sets the default value for the various _2018_ANSWERS parameters.", &
                  default=.false.)
@@ -2263,18 +2263,18 @@ subroutine MOM_temp_salt_initialize_from_Z(h, tv, G, GV, US, PF, just_read_param
     call get_param(PF, mdl, "ADJUST_THICKNESS", correct_thickness, &
                  "If true, all mass below the bottom removed if the "//&
                  "topography is shallower than the thickness input file "//&
-                 "would indicate.", default=.false., do_not_log=just_read)
+                 "would indicate.", default=.false.)
 
     call get_param(PF, mdl, "FIT_TO_TARGET_DENSITY_IC", adjust_temperature, &
                  "If true, all the interior layers are adjusted to "//&
                  "their target densities using mostly temperature "//&
                  "This approach can be problematic, particularly in the "//&
-                 "high latitudes.", default=.true., do_not_log=just_read)
+                 "high latitudes.", default=.true.)
     call get_param(PF, mdl, "Z_INIT_SEPARATE_MIXED_LAYER", separate_mixed_layer, &
                  "If true, distribute the topmost Z_INIT_HMIX_DEPTH of water over NKML layers, "//&
                  "and do not correct the density of the topmost NKML+NKBL layers.  Otherwise "//&
                  "all layers are initialized based on the depths of their target densities.", &
-                 default=.false., do_not_log=just_read.or.(GV%nkml==0))
+                 default=.false..or.(GV%nkml==0))
     if (GV%nkml == 0) separate_mixed_layer = .false.
     call get_param(PF, mdl, "MINIMUM_DEPTH", Hmix_default, default=0.0)
     call get_param(PF, mdl, "Z_INIT_HMIX_DEPTH", Hmix_depth, &
@@ -2285,7 +2285,7 @@ subroutine MOM_temp_salt_initialize_from_Z(h, tv, G, GV, US, PF, just_read_param
                  "If true use an expression with a vertical indexing bug for extrapolating the "//&
                  "densities at the bottom of unstable profiles from data when finding the "//&
                  "initial interface locations in layered mode from a dataset of T and S.", &
-                 default=.true., do_not_log=just_read)
+                 default=.true.)
     ! Reusing MINIMUM_DEPTH for the default mixed layer depth may be a strange choice, but
     ! it reproduces previous answers.
   endif
