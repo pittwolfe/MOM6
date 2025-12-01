@@ -647,7 +647,7 @@ subroutine InitializeAdvertise(gcomp, importState, exportState, clock, rc)
   endif
 
   ocean_public%is_ocean_pe = .true.
-  call ocean_model_init(ocean_public, ocean_state, time0, time_start, input_restart_file=trim(restartfiles))
+  call ocean_model_init(ocean_public, ocean_state, time0, time_start, input_restart_file=trim(adjustl(restartfiles)))
 
   ! GMM, this call is not needed for NCAR. Check with EMC.
   ! If this can be deleted, perhaps we should also delete ocean_model_flux_init
