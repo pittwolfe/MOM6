@@ -2385,7 +2385,7 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
                    "When the total depth is less than this, the diffusivity is scaled away.", &
                    units="m", default=1.0, scale=GV%m_to_H, do_not_log=.not.CS%Use_KH_in_MEKE)
   else
-    ! Give Use_KH_in_MEKE a default value to avoid layer segfaults
+    ! Give Use_KH_in_MEKE a default value to avoid segfaults
     CS%Use_KH_in_MEKE=.false.
   endif
 
